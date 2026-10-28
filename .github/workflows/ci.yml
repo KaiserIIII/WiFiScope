@@ -1,0 +1,32 @@
+name: Offline validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ['3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0, MIT
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Standard-library offline and loopback tests
+        run: python -m unittest discover -s tests
+      - name: Compile sources
+        run: python -m compileall -q wifiscope tests
+      - name: Synthetic report only
+        run: python -m wifiscope demo --out "${{ runner.temp }}/wifiscope-demo"

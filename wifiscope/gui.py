@@ -23,6 +23,7 @@ class Workstation:
         self.root = root
         self.demo_provider = demo_provider
         self.controller = Controller()
+        self.security_tools = None
         self.tables = {}
         self.finding_rows = {}
         self.history_offset = 0
@@ -65,6 +66,14 @@ class Workstation:
         self.mode_switch.pack(side='right')
         for value, text in [('novice', '新手引导'), ('professional', '专业工作台')]:
             ttk.Radiobutton(self.mode_switch, text=text, variable=self.mode, value=value, command=lambda: self.set_mode(self.mode.get())).pack(side='left')
+        security_bar = ttk.Frame(self.root, padding=(16, 3))
+        security_bar.pack(fill='x')
+        self.security_buttons = []
+        for key, label in [('vulnerability', '漏洞审计'), ('capture', '实时抓包'), ('survey', 'Wi-Fi 热力图')]:
+            button = ttk.Button(security_bar, text=label, command=lambda k=key: self.open_security_tools(k))
+            button.pack(side='left', padx=(0, 8))
+            self.security_buttons.append(button)
+        ttk.Label(security_bar, text='独立工具结果 · 明确应用才替换快照').pack(side='left')
         persistent_footer = ttk.Frame(self.root, padding=(16, 6))
         persistent_footer.pack(side='bottom', fill='x')
         self.guided = GuidedView(self, self.root, persistent_footer)
@@ -81,7 +90,7 @@ class Workstation:
         body.pack(fill='both', expand=True)
         tools = ttk.Frame(body)
         tools.pack(fill='x')
-        for text, command in [('离线演示', self.load_demo), ('本机采集', self.collect), ('打开证据 Ctrl+O', self.open_evidence), ('保存快照', self.save_case), ('打开案件', self.open_case), ('验证案件', self.verify_case), ('比较快照', self.compare), ('导出 Ctrl+E', self.export)]:
+        for text, command in [('离线演示', self.load_demo), ('本机采集', self.collect), ('打开证据 Ctrl+O', self.open_evidence), ('保存快照', self.save_case), ('打开案件', self.open_case), ('验证案件', self.verify_case), ('比较快照', self.compare)]:
             ttk.Button(tools, text=text, command=lambda c=command: self.guard(c)).pack(side='left', padx=(0, 5))
         ttk.Label(body, textvariable=self.source, wraplength=1100, foreground='#425e7e').pack(fill='x', pady=(7, 4))
         active = ttk.LabelFrame(body, text='主动检查 · 仅限明确授权的目标（TCP 暴露检查，不是全面漏洞扫描）', padding=(8, 5))
@@ -195,6 +204,12 @@ class Workstation:
         self.export_button.configure(text='导出脱敏报告 Ctrl+E' if mode == 'novice' else '导出（按专业隐私选择）Ctrl+E')
         self.guided.render(self.controller.report)
 
+    def open_security_tools(self, key='vulnerability'):
+        if self.security_tools is None:
+            from .security_tools_view import SecurityToolsView
+            self.security_tools = SecurityToolsView(self)
+        self.security_tools.show(key)
+
     def _table(self, frame, key, columns):
         box = ttk.Frame(frame)
         box.pack(fill='both', expand=True)
@@ -235,11 +250,18 @@ class Workstation:
                 messagebox.showerror('WiFiScope', self.controller.status, parent=self.root)
 
     def pump(self):
+        # Also safe for an explicit test/accessibility pump: keep one timer.
+        if getattr(self, 'timer', None) is not None:
+            self.root.after_cancel(self.timer)
+            self.timer = None
         fields = ('report', 'overlay', 'snapshot_id', 'case_path', 'history', 'source', 'result')
         previous = {field: getattr(self.controller, field) for field in fields}
         try:
-            if self.controller.poll():
+            if self.controller.poll() and any(previous[field] is not getattr(self.controller, field)
+                                               for field in ('report', 'overlay', 'history', 'source')):
                 self.render()
+            if self.security_tools is not None:
+                self.security_tools.deliver()
         except Exception:
             # A presentation failure must not replace the prior usable model
             # or permanently disable future worker delivery. Never echo input.
@@ -434,6 +456,20 @@ class Workstation:
             summary.extend(['', '多个执行范围 · 计数不可合并；逐项核查：'])
             summary.extend(json.dumps(context, ensure_ascii=False, sort_keys=True) for context in _run_contexts(report))
         summary.extend(['', '覆盖缺口：', ', '.join(report.get('gaps', [])) or '未列出；这不代表完整覆盖。', '', 'TCP RTT 是连接耗时，不是吞吐测速。离线抓包仅分析元数据。扫描器结果保持 imported-unverified。', '案件 hash 链可被重算；独立保存验证回执才能帮助发现后缀删除或历史替换。'])
+        if 'vulnerability_audit' in report:
+            audit = report['vulnerability_audit']
+            summary += ['', '漏洞审计 · 本地版本候选，非利用确认',
+                        f"目录 {audit['catalog']['catalog_version']} · 规则 {audit['catalog']['rule_count']} · 复核 {audit['catalog']['reviewed_at']} · 来源 {audit['catalog']['source']}",
+                        f"已评估服务 {audit['summary']['evaluated_services']} · 未知 {audit['summary']['unknown_services']} · 候选 {audit['summary']['candidates']}",
+                        '需核查回补与配置适用性；无匹配不表示安全。']
+        if 'capture_session' in report:
+            session = report['capture_session']
+            summary += ['', '抓包会话 · 元数据', f"{session['status']} / {session['stop_reason']} · {session['duration_ms']} ms · {session['packets']} 包 / 分析 {session['analyzed_packets']} 包",
+                        f"捕获 {session['captured_bytes']} 字节 / 线上长度 {session['wire_bytes']}；快照 {session['limits']['snaplen']} 字节；丢包未知保持未知。"]
+        if 'wifi_survey' in report:
+            survey = report['wifi_survey']
+            summary += ['', 'Wi-Fi 调查 · 读数与插值估计分开', f"指标 {survey['metric']} · 测点 {len(survey['samples'])} · 未知 {sum(s['value'] is None for s in survey['samples'])}",
+                        '估计仅覆盖凸包内且具有三个局部贡献点的区域；信号不证明吞吐、干扰或安全。打开 Wi-Fi 热力图查看独立工具结果。']
         self._text(self.overview, '\n'.join(summary))
         self._rows('wifi', report.get('wifi', []))
         assets = []
@@ -456,6 +492,8 @@ class Workstation:
             self._text(self.comparison, '\n'.join(lines))
 
     def close(self):
+        if self.security_tools is not None:
+            self.security_tools.close()
         self.controller.cancel()
         self.root.after_cancel(self.timer)
         self.root.destroy()

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 from wifiscope.demo import demo_report
@@ -12,6 +13,51 @@ from wifiscope.wifi import parse_netsh
 
 
 class ReportTests(unittest.TestCase):
+    def test_heatmap_bundle_preserves_synthetic_provenance_through_reexport_and_case(self):
+        from wifiscope.cases import CaseStore
+        from wifiscope.demo import survey_demo
+
+        for mode in ('both', 'flag-only', 'gap-only', 'ordinary'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                report = survey_demo()
+                if mode in ('gap-only', 'ordinary'):
+                    report['synthetic'] = False
+                if mode in ('flag-only', 'ordinary'):
+                    report['gaps'].remove('synthetic-demo')
+                report['notes'] = 'PRIVATE ARBITRARY PROSE'
+                root = Path(temp)
+                first = export_report(report, root / 'first')
+                prepared = json.loads(Path(first['json']).read_text(encoding='utf-8'))
+                second = export_report(prepared, root / 'reexport')
+                with CaseStore(root / 'case.db') as store:
+                    identifier = store.add_snapshot(prepared)
+                    loaded = store.load_snapshot(identifier)
+                third = export_report(loaded, root / 'from-case')
+                for paths in (first, second, third):
+                    svg = Path(paths['svg']).read_text(encoding='utf-8')
+                    document = ET.fromstring(svg)
+                    title = document.find('{http://www.w3.org/2000/svg}title').text
+                    visible = ' '.join(
+                        element.text or ''
+                        for element in document.findall('{http://www.w3.org/2000/svg}text')
+                    )
+                    if mode == 'ordinary':
+                        self.assertNotIn('SYNTHETIC DEMO', visible)
+                        self.assertEqual(title, 'Wireless survey signal heatmap')
+                    else:
+                        self.assertIn('SYNTHETIC DEMO', title)
+                        self.assertIn('SYNTHETIC DEMO', visible)
+                        self.assertIn('no actual network was sampled', visible)
+                    self.assertNotIn('Synthetic Survey SSID', svg)
+                    self.assertNotIn('02:00:00:00:00:33', svg)
+                    self.assertNotIn('PRIVATE ARBITRARY PROSE', svg)
+                    bundled = json.loads(Path(paths['json']).read_text(encoding='utf-8'))
+                    self.assertIn(bundled['wifi_survey']['ssid'], svg)
+                original = Path(first['svg']).read_bytes()
+                with self.assertRaises(FileExistsError):
+                    export_report(report, root / 'first')
+                self.assertEqual(Path(first['svg']).read_bytes(), original)
+
     def test_comparison_synthetic_provenance_and_before_after_counts(self):
         import copy
         from wifiscope.comparison import compare_snapshots

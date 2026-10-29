@@ -41,6 +41,10 @@ class GuidedView:
         self._label(inner, '本机检查只读取 Wi-Fi、网卡、路由和防火墙配置，不发送目标探测，也不证明互联网可用。文件导入只解释已有证据，不会自动复测。')
         self.demo_button = ttk.Button(inner, text='先试离线演示 · 全部为合成证据', command=lambda: app.guard(app.load_demo))
         self.demo_button.pack(anchor='w', pady=8)
+        deep = ttk.Frame(inner)
+        deep.pack(fill='x', pady=5)
+        for key, label in [('vulnerability', '漏洞审计 · 已有证据'), ('capture', '实时抓包 · 先授权'), ('survey', 'Wi-Fi 热力图 · 定点采样')]:
+            ttk.Button(deep, text=label, command=lambda k=key: app.open_security_tools(k)).pack(side='left', padx=(0, 6))
         target = ttk.LabelFrame(inner, text='指定设备 / 服务 · 默认只检查端口 80、443', padding=10)
         target.pack(fill='x', pady=8)
         target.columnconfigure(1, weight=1)

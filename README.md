@@ -1,6 +1,6 @@
 # WiFiScope
 
-一个仅依赖 Python 标准库的本地安全证据工作台：把 Wi-Fi 配置、本机网络状态、授权 TCP/TLS/HTTP 检查、外部扫描报告和离线抓包元数据放进可核查的调查快照。中文 Tk 界面与命令行共用证据模型；报告默认隐藏标识符，案件记录保存在本机。
+一个仅依赖 Python 标准库的本地安全证据工作台：结合 Wi-Fi/本机配置、授权 TCP/TLS/HTTP 检查、扫描报告、本地 CVE 候选审计、有界实时抓包和定点 Wi-Fi 信号调查。中文 Tk 界面与 CLI 共用类型化证据；报告默认隐藏标识符，案件保存在本机。
 
 [English](README.en.md) · [能力对照](docs/competitive-landscape.md) · [验证边界](docs/validation.md) · [检查方法](docs/audit-methodology.md) · [依赖审计](docs/dependencies.md)
 
@@ -25,6 +25,32 @@ Windows 也可双击 `run-wifiscope.cmd`；Linux/macOS 可用 `./run-wifiscope.s
 3. 点击底部“导出脱敏报告”生成新目录中的 JSON、CSV、HTML。需要完整表格、定制端口/范围、案件与复测比较时，随时切到“专业工作台”；当前报告和本地处置不会丢失。
 
 [操作说明与小词典](docs/usability.md)说明隐私选择、数量比较和未知证据的含义。新手视图隐藏专业设置；原始标识符导出与案件保留仍为专业模式中的两个独立选项。CLI 参数保持不变。
+
+## 三项安全工具
+
+新手与专业模式顶部始终提供“漏洞审计”“实时抓包”“Wi-Fi 热力图”；900×620 窗口中仍可打开。工具窗口可滚动，底部应用、取消和导出保持可见。打开、切换、定位或离线演示不会自动采集/探测；三个演示均为明确标记的合成数据，由实际本地引擎处理。
+
+- **漏洞审计**：先载入证据，再选择内置 6 CVE 复核子集或本地 native/NVD2 JSON（可选 SHA256），明确点击审计。结果显示目录版本/哈希/来源/复核日、版本范围、置信和未知服务。候选需要核查发行版回补与配置；无匹配不表示安全。
+- **实时抓包**：明确枚举并选择接口，核对默认 10 秒/2000 包/8 MiB/96 字节/非混杂计划，再勾选相邻授权。修改计划清除授权。>96 字节或原始文件另需独立同意，可能含私人应用数据；文件必须是新路径，普通报告只包含元数据。Windows 需要已安装 Npcap 及权限；Linux 需要 libpcap 或 AF_PACKET 权限；不自动安装。
+- **Wi-Fi 热力图**：填写明确网络（优先 BSSID）和 %/实测 dBm，创建项目，在空白画布或本地 PNG/GIF 上点击定位，再点“采样此位置”读取一次本地配置。背景 ≤8 MiB、每轴 ≤8192、≤3200 万像素，仅本地显示。归一化坐标不随缩放/平移变化；未知不补值，IDW 估计只在有三个局部贡献点的凸包支持区域显示。支持本地项目新文件保存、JSON/CSV 导入、可撤销移点与独立 SVG 导出。
+
+工具结果先保存在独立预览，不改当前报告、案件 ID 或处置。应用前可先保存案件，勾选相邻替换选择后点击“应用工具结果”；不会静默混合不同上下文。工具导出在两种模式均可用，默认 HMAC，原始标识符复选框与主窗口及案件保留独立。背景图片/路径、原始包文件/路径、应用载荷、本地备注和任意导入描述均不进入普通报告；原始标识符选项也不会放行这些内容。
+
+合成调查不能保存为会丢失合成标记的本地项目；请使用“导出工具结果”保留报告标记。非合成项目仍可独占保存/打开。JSON、CSV 或演示成功替换项目后，旧项目的撤销历史会清空。
+
+```console
+python -m wifiscope vuln --input REPORT.json --out NEW_VULN_REPORT
+python -m wifiscope vuln --input REPORT.json --catalog PACK.json --catalog-format native --catalog-sha256 EXPECTED_SHA256 --out NEW_CATALOG_REPORT
+python -m wifiscope vuln --input REPORT.json --catalog NVD.json --catalog-format nvd2
+python -m wifiscope capture --list-interfaces
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --duration 10 --max-packets 2000 --max-bytes 8388608 --snaplen 96 --authorized --out NEW_CAPTURE_REPORT
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --filter "tcp port 443" --authorized --out NEW_FILTERED_REPORT
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --snaplen 65535 --retain-packets --raw-out NEW_CAPTURE.pcap --authorized --out NEW_RAW_METADATA_REPORT
+python -m wifiscope survey --input samples.csv --format csv --grid-size 40 --radius .35 --power 2 --out NEW_SURVEY_REPORT
+python -m wifiscope survey --input project.json --format json --include-identifiers --out NEW_EXPLICIT_ID_REPORT
+```
+
+不要原样运行接口占位符；先枚举后选择获授权接口。详见[漏洞引擎](docs/vulnerability-engine.md)、[实时抓包](docs/live-capture.md)、[Wi-Fi 调查](docs/wifi-survey.md)。调查 CSV 必须使用 `x,y,value,observed_at,ssid,bssid,metric`，不是导出的扁平报告 CSV；空 value 表示未知。
 
 ## 工作台流程
 
@@ -90,7 +116,7 @@ python -m wifiscope case triage --db investigation.db --snapshot 1 --finding $ca
 - Windows 只读适配器：netsh Wi-Fi、PowerShell 网卡/默认路由/防火墙；系统权限或位置隐私限制会成为缺口，不会自动提权。Windows 位置访问或无线服务禁用时，可启用相应系统权限后重试，或离线导入 netsh 输出。
 - Linux：nmcli 缓存 Wi-Fi 列表、`ip -j` 地址及 IPv4/IPv6 默认路由；DNS 配置和防火墙当前标记不可用。Linux 适配器目前由合成 fixtures 验证，未因离线 CI 就宣称本机 Linux 采集已验证。命令缺失/超时是缺口。
 - Nmap XML 与 Greenbone GMP XML 是外部扫描证据导入，不会自动运行扫描器。服务版本、CVE 和评分来自外部结果，维持 imported-unverified；不内置全面 CVE 数据库、漏洞利用或凭据审计。
-- PCAP/PCAPNG 为离线有界元数据解析，支持常见 Ethernet/VLAN/IPv4/IPv6/ARP 和 TCP/UDP 计数、HTTP 明文请求提示、DNS 查询/NXDOMAIN、ARP 冲突提示；不抓包、不重组、不保存载荷/URI/DNS 名称/凭据，不是 Wireshark、IDS 或完整协议解码器。ARP 冲突也可能来自 HA、代理 ARP、地址复用。
+- PCAP/PCAPNG 支持有界离线元数据解析；实时抓包另有明确接口/限额/授权流程。支持常见 Ethernet/VLAN/IPv4/IPv6/ARP 与 TCP/UDP、HTTP 请求提示、DNS 查询/NXDOMAIN、ARP 冲突提示；不重组、不将载荷/URI/DNS 名称/凭据写入报告，不是完整 DPI、IDS 或 Wireshark。ARP 冲突也可能来自 HA、代理 ARP、地址复用。
 - Wi-Fi 信号是观测值，信道分布不等于干扰测量；不执行断连、破解或密钥读取。代理存在仅作为环境上下文。
 - 默认导出对身份字段使用每次导出独立的 HMAC 伪名，保留允许的类型化测量；HTML 转义、CSV 公式前缀中和、不载入外部资源。脱敏是数据最小化，不保证匿名，时间/拓扑/服务仍可能识别环境。原始输入文件不会被擦除。
 - 案件是本地 SQLite，事件追加且快照不可变；hash 链没有签名，不能抵抗有能力重写整库的攻击者。Windows ACL 不作保证。自行保护案件与原始报告，并将可信回执独立保存。

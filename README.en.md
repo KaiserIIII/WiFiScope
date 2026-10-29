@@ -1,6 +1,6 @@
 # WiFiScope
 
-A local security evidence workstation using only the Python standard library. It combines Wi-Fi configuration, local network state, explicitly authorized TCP/TLS/HTTP checks, external scanner reports, and offline packet metadata in reviewable investigation snapshots. The Chinese Tk interface and CLI share the same evidence model. Exports redact identities by default; case history stays local.
+A local security evidence workstation using only the Python standard library. It combines Wi-Fi/local configuration, authorized TCP/TLS/HTTP checks, scanner reports, local CVE candidate audits, bounded live capture and sampled signal surveys. The Chinese Tk interface and CLI share typed evidence. Exports redact identities by default; case history stays local.
 
 [中文](README.md) · [Comparison with established tools](docs/competitive-landscape.md) · [Validation](docs/validation.md) · [Methodology](docs/audit-methodology.md) · [Dependency audit](docs/dependencies.md)
 
@@ -24,7 +24,33 @@ The demo contains invented synthetic evidence, never live measurements: WPA2/ope
 2. Read coverage, unknowns and run status before the three suggested next actions. For an explicit device, enter one hostname/IP and optionally a URL on that host. Preview the default ports 80/443, any URL endpoint, TLS/HEAD connection counts and rate-limit duration; then check authorization beside the start button. Cancel stays in the footer.
 3. Export a default-redacted JSON/CSV/HTML bundle using the footer. Switch to `专业工作台` for all tables, custom scopes/ports, cases, triage and comparisons; the same report and case remain associated.
 
-See [guidance, glossary and privacy choices](docs/usability.md). Raw report export and raw case retention are separate professional opt-ins. Novice export always redacts, including after a previous professional opt-in. CLI flags are unchanged.
+See [guidance, glossary and privacy choices](docs/usability.md). Main-window raw report export and raw case retention are separate professional opt-ins. Main novice export always redacts. The dedicated tools below have their own explicit export privacy choice in either mode.
+
+## Three security tools
+
+The persistent header opens **漏洞审计** (vulnerability audit), **实时抓包** (live capture), and **Wi-Fi 热力图** (survey) in both modes, including 900×620. Panels scroll; Apply, Cancel and Export remain in the footer. Opening, changing modes or clicking a survey position starts no collection. Each explicit offline demo runs real local engines on prominently labeled synthetic evidence.
+
+- Audit existing evidence with the reviewed six-CVE subset or a selected local native/NVD2 catalog and optional SHA256. Results include catalog version/hash/review/source, candidate version ranges, confidence, existing configuration rules and unknown service counts. Check distribution backports and applicability; no match does not establish security.
+- Enumerate and explicitly select one capture interface. Review the default 10 seconds/2,000 packets/8 MiB/96 bytes/non-promiscuous plan, then check adjacent authorization. Edits clear authorization. Larger snapshots or raw files need separate consent because prefixes/full packets may contain private application data. Raw paths must be new; ordinary reports contain metadata only. Windows requires installed Npcap and permissions; Linux requires installed libpcap or AF_PACKET permissions. Nothing is installed automatically.
+- Select SSID/BSSID (prefer BSSID) and percent/measured dBm, create a project, click a blank or local PNG/GIF canvas, then explicitly sample once. The background is local only: ≤8 MiB, ≤8192 per axis, ≤32 million pixels. Resize/zoom/pan preserve normalized coordinates. Unknown stays unknown; IDW estimates require three non-collinear locations and three local contributors within the supported hull/radius. Open/save local projects, import CSV, undo point removal, and export a safe standalone SVG.
+
+Tool results remain separate previews, preserving the current report, case IDs and triage. Save the case first if needed, check the adjacent replacement choice, then Apply. Incompatible contexts are never silently merged. Tool export is available in both modes, defaults to HMAC and has its own unchecked raw-identity option, independent of the main window and case retention. Neither identity opt-in exports backgrounds/paths, packet files/paths, payloads, local notes or arbitrary imported prose.
+
+Synthetic surveys cannot be saved as native projects because that format omits the synthetic marker; use tool report export to preserve it. Ordinary projects still support exclusive save/open. Successful JSON/CSV/demo project replacement clears the previous project's undo history.
+
+```console
+python -m wifiscope vuln --input REPORT.json --out NEW_VULN_REPORT
+python -m wifiscope vuln --input REPORT.json --catalog PACK.json --catalog-format native --catalog-sha256 EXPECTED_SHA256 --out NEW_CATALOG_REPORT
+python -m wifiscope vuln --input REPORT.json --catalog NVD.json --catalog-format nvd2
+python -m wifiscope capture --list-interfaces
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --duration 10 --max-packets 2000 --max-bytes 8388608 --snaplen 96 --authorized --out NEW_CAPTURE_REPORT
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --filter "tcp port 443" --authorized --out NEW_FILTERED_REPORT
+python -m wifiscope capture --interface "EXACT_LISTED_INTERFACE" --snaplen 65535 --retain-packets --raw-out NEW_CAPTURE.pcap --authorized --out NEW_RAW_METADATA_REPORT
+python -m wifiscope survey --input samples.csv --format csv --grid-size 40 --radius .35 --power 2 --out NEW_SURVEY_REPORT
+python -m wifiscope survey --input project.json --format json --include-identifiers --out NEW_EXPLICIT_ID_REPORT
+```
+
+Replace the interface placeholder with an explicitly enumerated authorized interface. See [audit engine](docs/vulnerability-engine.md), [capture prerequisites/limits](docs/live-capture.md), and [survey formats](docs/wifi-survey.md). Import CSV uses `x,y,value,observed_at,ssid,bssid,metric`; blank values are unknown. Flattened report CSV is a different format.
 
 ## Workstation workflow
 
@@ -90,7 +116,7 @@ Identity comparison requires opting into identifiers at initial export and again
 - Windows read-only adapters use netsh Wi-Fi and PowerShell interfaces/default routes/firewall. OS permission/location privacy restrictions become gaps; the tool never elevates itself. Enable the relevant OS location/wireless permissions and retry, or import netsh output offline.
 - Linux adapters use cached nmcli Wi-Fi and `ip -j` addresses/IPv4+IPv6 default routes; DNS configuration and firewall are currently unavailable. Linux adapters are fixture-tested until native evidence exists; offline Linux CI alone does not validate live collection. Missing commands/timeouts become gaps.
 - Nmap XML and Greenbone GMP XML are imported scanner evidence; WiFiScope does not launch scanners. Service versions, CVEs and scores remain imported-unverified. There is no comprehensive built-in CVE database, exploitation or credential audit.
-- PCAP/PCAPNG is bounded offline metadata analysis for common Ethernet/VLAN/IPv4/IPv6/ARP, TCP/UDP counters, plaintext HTTP request hints, DNS query/NXDOMAIN and ARP conflict hints. It does not capture, reassemble or retain payloads, URIs, DNS names or credentials, and is not Wireshark, an IDS or a complete decoder. ARP conflicts may reflect HA, proxy ARP or address reuse.
+- PCAP/PCAPNG provides bounded offline metadata analysis; live capture has a separate explicit interface/limits/authorization flow. Common Ethernet/VLAN/IP/ARP, TCP/UDP, HTTP request hints, DNS query/NXDOMAIN and ARP hints are supported. Reports do not retain payloads, URIs, DNS names or credentials. No full DPI/reassembly, IDS or complete Wireshark decoder is provided. ARP conflicts may reflect HA, proxy ARP or address reuse.
 - Wi-Fi signal is an observation; channel distribution is not measured interference. No deauthentication, key retrieval or cracking. Proxy presence is context only.
 - Default exports use a fresh HMAC context per export and allowlisted typed measurements; HTML is escaped, CSV formula prefixes are neutralized, and HTML has no external resources. Pseudonymization minimizes data but cannot guarantee anonymity: timing, topology and services can still identify environments. Original input files are not erased.
 - Local SQLite snapshots are immutable and events append-only through this API. The unsigned hash chain is recomputable by someone who can rewrite the database; Windows ACL guarantees are absent. Protect cases/raw reports and keep trusted receipts independently.

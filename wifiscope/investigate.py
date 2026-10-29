@@ -149,6 +149,12 @@ def merge_reports(reports: list[dict]) -> dict:
     """
     if not isinstance(reports, list) or len(reports) > 16 or any(not isinstance(r, dict) for r in reports):
         raise ValueError('Merge accepts at most 16 report dictionaries.')
+    if any('vulnerability_audit' in report for report in reports):
+        raise ValueError('Merging audited reports requires separate audit contexts. Merge original evidence first, then run a new local vulnerability audit.')
+    if any('capture_session' in report for report in reports):
+        raise ValueError('Merging live capture reports requires distinct capture contexts; keep sessions separate.')
+    if any('wifi_survey' in report for report in reports):
+        raise ValueError('Merging survey reports requires distinct selected-network and coordinate contexts; keep projects separate.')
     merged = dict(schema_version=1, assets=[], imported_findings=[], sources=[], gaps=[], connectivity=[])
     seen = set()
     size = 0
@@ -213,6 +219,8 @@ def build_investigation(report: dict) -> dict:
     if 'schema_version' in report and (type(report['schema_version']) is not int or report['schema_version'] != 1):
         raise ValueError('Investigation requires schema_version=1 evidence.')
     _check_budget(report)
+    from .extensions import validate_extensions
+    validate_extensions(report)
     result = copy.deepcopy(report)
     contexts = _run_contexts(result)
     if len(contexts) > 1:
@@ -388,27 +396,39 @@ def build_investigation(report: dict) -> dict:
     for context in _packet_contexts(result):
         evidence = {key: copy.deepcopy(context.get(key)) for key in ('source_sha256', 'observed_at', 'packets',
             'captured_bytes', 'plaintext_http_packets', 'partial')}
-        evidence['source'] = 'packets'
+        live = 'capture_session' in result and context.get('source_sha256') == result['capture_session']['source_sha256']
+        evidence['source'] = 'measured' if live else 'packets'
+        category = 'live-capture' if live else 'offline-packets'
         for endpoint in _rows(context.get('endpoints')):
             asset = get_asset(endpoint)
             if asset is not None:
-                observation = dict(source='packets', source_sha256=context.get('source_sha256'),
+                observation = dict(source=evidence['source'], source_sha256=context.get('source_sha256'),
                     observed_at=context.get('observed_at'), packets=endpoint.get('packets'), bytes=endpoint.get('bytes'))
                 if observation not in asset['observations']:
                     asset['observations'].append(observation)
         if type(context.get('plaintext_http_packets')) is int and context['plaintext_http_packets'] > 0:
-            add('packet-http', evidence, 'medium', 'high', 'observed', 'offline-packets', issue=context.get('source_sha256'))
+            add('packet-http', evidence, 'medium', 'high', 'observed', category, issue=context.get('source_sha256'))
         for observation in _rows(context.get('observations')):
             if observation.get('code') == 'arp-conflict':
                 get_asset(observation)
                 add('arp-conflict', dict(evidence, address=observation.get('address')), 'low', 'medium', 'needs-review',
-                    'offline-packets', issue=context.get('source_sha256'))
+                    category, issue=context.get('source_sha256'))
     for row in _rows(result.get('imported_findings')):
         get_asset(row)
         score = row.get('score')
         severity = 'high' if _numeric(score) and score >= 7 else 'medium' if _numeric(score) and score >= 4 else 'low' if _numeric(score) and score > 0 else 'info'
         add('scanner-finding', copy.deepcopy(row), severity, 'low', 'imported-unverified', 'scanner',
             issue=[row.get('issue_id'), sorted(row.get('cves', [])) if isinstance(row.get('cves'), list) else []])
+    audit = result.get('vulnerability_audit')
+    if isinstance(audit, dict):
+        title, recommendation, retest = templates['cve-version-match']
+        for candidate in audit['candidates']:
+            evidence = {key: copy.deepcopy(candidate.get(key)) for key in ('asset_id', 'address', 'port', 'protocol',
+                'product', 'version', 'source', 'source_sha256', 'observed_at', 'identification')}
+            evidence['cves'] = [candidate['cve']]
+            findings.append(dict(id=candidate['id'], code='cve-version-match', severity=candidate['severity'],
+                confidence=candidate['confidence'], status=candidate['status'], category='local-vulnerability-audit',
+                title=title, evidence=evidence, recommendation=recommendation, retest=retest))
     for finding in assess(result):
         add(finding['code'], finding['evidence'], 'medium' if finding['severity'] == 'warning' else 'info',
             'low' if finding['code'] == 'mixed-security' else 'high',
@@ -418,6 +438,28 @@ def build_investigation(report: dict) -> dict:
     priorities = {'high': 0, 'medium': 1, 'low': 2, 'info': 3}
     findings.sort(key=lambda r: (priorities[r['severity']], r['code'], r['id']))
     coverage = _coverage(result)
+    if 'wifi_survey' in result:
+        from .survey_schema import validate_survey
+        result['wifi_survey'] = validate_survey(result['wifi_survey'])
+        samples = result['wifi_survey']['samples']
+        known = [row for row in samples if row['value'] is not None]
+        measured = [row for row in known if row.get('source') == 'measured']
+        imported = len(known) - len(measured)
+        contexts = [dict(status='observed' if source == 'measured' else 'imported', source='local',
+                         reason='observed-evidence' if source == 'measured' else 'imported-evidence',
+                         evaluated=count, count_unit='observations', partial=True)
+                    for source, count in [('measured', len(measured)), ('imported', imported)] if count]
+        status = 'observed' if measured else 'imported' if known else 'unavailable'
+        coverage.append(dict(category='wireless-survey', status=status, source='local',
+            reason='observed-evidence' if measured else 'imported-evidence' if known else 'evidence-unavailable',
+            planned=None, attempted=len(samples), evaluated=len(known), unattempted=None,
+            measured=len(measured), imported=imported, unknown=len(samples)-len(known),
+            count_unit='observations', partial=True, contexts=contexts))
+    if isinstance(audit, dict):
+        has_versions = audit['summary']['evaluated_services'] > 0
+        coverage.append(dict(category='local-vulnerability-audit', status='observed' if has_versions else 'unavailable', source='local',
+            reason='observed-evidence' if has_versions else 'evidence-unavailable', planned=None, attempted=None, evaluated=audit['summary']['evaluated_services'],
+            unattempted=audit['summary']['unknown_services'], count_unit='observations', partial=True))
     result['investigation'] = dict(assets=list(assets.values()), findings=findings, coverage=coverage,
         gaps=list(dict.fromkeys(gaps)), summary=dict(
             priorities={severity: sum(f['severity'] == severity for f in findings) for severity in priorities},
@@ -517,7 +559,9 @@ def _coverage(report):
         provenance(coverage[-1], measured, imported_rows)
     packet_sources = [s for s in sources if s.get('type') in ('packets', 'pcap', 'pcapng')]
     packet_contexts = _packet_contexts(report)
-    add('offline-packets', bool(packet_sources) or bool(report.get('packets')) or bool(packet_contexts), 'packets', imported=True)
+    live = isinstance(report.get('capture_session'), dict)
+    add('live-capture' if live else 'offline-packets', bool(packet_sources) or bool(report.get('packets')) or bool(packet_contexts),
+        'measured' if live else 'packets', imported=not live)
     coverage[-1].update(count_unit='packets', planned=None, attempted=None, unattempted=None,
         evaluated=packet_contexts[0].get('packets') if len(packet_contexts) == 1 else None,
         partial=True,  # Decoding a capture does not establish its network/time scope.

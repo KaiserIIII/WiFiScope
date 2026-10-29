@@ -15,9 +15,11 @@ RUN = dict(complete='已完成限定检查', partial='部分完成', cancelled='
 COVERAGE = {'wifi-configuration': 'Wi-Fi 配置', 'local-firewall': '本机防火墙', 'tcp-exposure': 'TCP 连接',
             'dns-resolution': '地址解析', 'ipv4': 'IPv4 连接', 'ipv6': 'IPv6 连接',
             'tls-validation': 'TLS 证书', 'http-posture': 'HTTP 响应策略', 'tls': 'TLS 证书',
-            'offline-packets': '离线抓包元数据', 'external-vulnerability-scan': '外部扫描', 'environment-context': '本机环境'}
+            'offline-packets': '离线抓包元数据', 'external-vulnerability-scan': '外部扫描', 'environment-context': '本机环境',
+            'local-vulnerability-audit': '本地版本漏洞候选核查'}
 # title, observation, implication, safe next action; each key is a shipped rule.
 _ZH = {
+    'cve-version-match': ('软件版本匹配公告范围', '明确的软件产品和版本匹配本地公告目录。', '配置、平台条件和发行版回补尚未核实，版本匹配不能证明可利用性。', '向负责人核对安装包、厂商公告及回补状态，补充相同授权范围的证据。'),
     'packet-http': ('抓包中有明文 HTTP 请求', '离线抓包记录了 HTTP 请求元数据。', '可能需要加密；元数据不能证明密码泄漏。', '向应用负责人确认是否应使用 HTTPS。'),
     'arp-conflict': ('地址对应关系需要核查', '同一 IP 出现不同 MAC 对应关系。', '高可用、代理 ARP 或地址复用都可能造成差异，不能确认攻击。', '与网络管理员核对 ARP 和高可用配置。'),
     'cleartext-exposure': ('可能开放了明文服务', '观察到可能用于明文协议的开放端口。', '端口号只是线索，不能证明协议或漏洞。', '确认实际应用协议和加密要求。'),

@@ -49,3 +49,47 @@ HTML uses static inline CSS, responsive metric cards, readable finding cards, ex
 ## Interpretation limits
 
 An audit is bounded TCP exposure observation, not comprehensive vulnerability scanning or security assurance. Imported results need independent verification. Unknown capture scope, unsupported protocols, offload/checksum uncertainty, incomplete retests, unavailable commands and unknown original times remain gaps. Partial or differently scoped comparisons never establish removal or remediation. Hash-chain verification is local and unsigned; trusted external receipts are needed for stronger history comparisons.
+
+## Security tool integration checks (2026-10-29)
+
+The local audit engine, capture engine and survey engine are shipped with CLI
+and dedicated Tk panels. Tests use actual buttons and the real shared Controller
+queue, fake capture/collector boundaries, and real offline matching/IDW/packet
+parsing. Opening/mode/tab/position actions perform no collection or catalog
+loading. Capture tests cover independent authorization/raw consent, edit
+invalidation, unavailable backends, unsupported filters, idle cancellation,
+typed monotonic progress, stale owner delivery and preservation of current case
+IDs/triage until explicit Apply. Both-mode header/footer and scroll geometry are
+checked at 900×620; 1180×730 remains covered by existing workstation tests.
+
+Survey checks include normalized transforms, sampling timestamp/unknown dBm,
+reversible removal, bounded PNG/GIF preallocation (including oversized GIF
+subframes), projected safe SVG, new-directory export and all three typed
+extensions through cases. General engine suites cover multi-BSSID rejection,
+canonical identity provenance, input limits, convex-hull/local-contributor masks
+and unsupported merge contexts. Default and raw-identity exports both discard
+arbitrary imported prose, floorplans/paths, local notes and packet contents.
+
+Synthetic Tk runs showed a finite startup/native layout delay on this Windows
+host, followed by regular scheduled callbacks. Timing is an environment
+observation, not a cross-machine performance benchmark. Tk checks skip when a
+display is unavailable; such skips do not establish native UI coverage. Heavy
+maximum-grid preparation/export runs in the worker; cancellation remains
+cooperative and may wait for the current bounded geometry operation. No physical
+Wi-Fi capture, field heatmap validation, comprehensive vulnerability coverage,
+RF planning accuracy, full DPI, user study, native Linux capture/collection, or
+new browser visual verification is established by these tests. The earlier
+browser restriction remains in force. Hosted CI and final cross-version/native
+review require their own successful runs.
+
+Independent native Windows review on 2026-10-29 exercised both modes and all
+three tabs at 900×620: persistent entries, scrolling, visible Apply/replacement/
+Cancel/export controls, unchecked independent raw-export choice, synthetic
+multi-CVE audit, blocked capture start without enumerated selection, exact
+capture defaults/separate raw consent, offline parsed-packet demo and synthetic
+survey dots/interpolated cells/unknown mask/table. No live enumeration, sample,
+probe or capture was clicked during this visual review. File dialogs, background
+loading and zoom were not manually verified in that review. Native automation
+occasionally timed out obtaining accessibility/frame state and recovered on a
+fresh view; a persistent mainloop hang was not observed. These observations do
+not establish general performance, field accuracy or novice usability.

@@ -36,7 +36,7 @@ NUMBERS = frozenset(('signal_percent', 'channel', 'metric', 'port', 'attempts',
     'src_port', 'dst_port', 'tcp_syn_packets', 'tcp_reset_packets', 'dns_queries', 'dns_nxdomain',
     'plaintext_http_packets', 'max_input_bytes', 'max_packets', 'max_endpoints', 'max_conversations',
     'max_arp_bindings', 'max_observations', 'max_vlan_tags', 'max_ipv6_extension_headers',
-    'max_ipv6_extension_bytes', 'input_bytes'))
+    'max_ipv6_extension_bytes', 'input_bytes', 'wire_bytes'))
 BOOLEANS = frozenset(('enabled', 'proxy_configured', 'server', 'location', 'partial',
     'content_type', 'content_length', 'strict_transport_security', 'content-type',
     'content-length', 'strict-transport-security', 'verified', 'hsts', 'hsts_positive_max_age',
@@ -61,7 +61,7 @@ ENUMS = {
     'type': {'measured', 'local', 'nmap', 'greenbone', 'scanner', 'packets', 'pcap', 'pcapng', 'synthetic'},
     'category': {'network', 'tls', 'http', 'policy', 'scanner', 'wifi', 'firewall', 'wifi-configuration',
         'local-firewall', 'dns-resolution', 'ipv4', 'ipv6', 'tcp-exposure', 'tls-validation',
-        'http-posture', 'offline-packets', 'external-vulnerability-scan', 'environment-context'},
+        'http-posture', 'offline-packets', 'live-capture', 'external-vulnerability-scan', 'environment-context', 'local-vulnerability-audit', 'wireless-survey'},
     'reason': {'imported-evidence', 'observed-evidence', 'evidence-unavailable', 'not-requested', 'multiple-scope-contexts', 'mixed-evidence'},
     'count_unit': {'hosts', 'connections', 'endpoints', 'results', 'observations', 'packets'},
     'scan_status': {'complete', 'partial'},
@@ -79,7 +79,8 @@ GAPS = frozenset(source + suffix for source in ('wifi', 'interfaces', 'routes', 
     'packet-linktype-unsupported', 'packet-block-unsupported', 'packet-time-unknown',
     'packet-vlan-limit', 'packet-transport-unsupported', 'packet-invalid-length',
     'packet-arp-unsupported', 'packet-ipv6-unsupported', 'packet-ipv6-extension-limit',
-    'packet-network-unsupported', 'packet-fragment', 'packet-scope-unknown', 'comparison-scope-limited'}
+    'packet-network-unsupported', 'packet-fragment', 'packet-scope-unknown', 'comparison-scope-limited',
+    'capture-analysis-limit'}
 
 
 def project_report(report: dict, include_identifiers: bool = False) -> dict:
@@ -167,6 +168,8 @@ def project_report(report: dict, include_identifiers: bool = False) -> dict:
             result[field] = walk(report[field], field)
     env = report.get('environment') if isinstance(report.get('environment'), dict) else {}
     result['environment'] = dict(proxy_configured=env.get('proxy_configured') is True)
+    from .extensions import project_extensions
+    result.update(project_extensions(report, identity))
     # Export cannot recover identifiers already removed by an earlier projection.
     # The opt-in may preserve persisted pseudonyms for local triage only.
     result['identifiers_included'] = include_identifiers and report.get('identifiers_included') is not False

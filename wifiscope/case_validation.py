@@ -52,6 +52,8 @@ def validate_comparison(value):
 def validate_report(report):
     if not isinstance(report, dict) or type(report.get('schema_version')) is not int or report['schema_version'] != 1:
         raise ValueError('Case snapshot requires schema_version=1 report.')
+    from .extensions import validate_extensions
+    validate_extensions(report)
     if 'comparison' in report:
         validate_comparison(report['comparison'])
     lists = {'wifi', 'interfaces', 'routes', 'firewall', 'connectivity', 'findings', 'sources',
@@ -67,6 +69,14 @@ def validate_report(report):
     minimum_size = 0
     while pending:
         value, depth, field = pending.pop()
+        if field == 'wifi_survey' and depth == 1:
+            # Dedicated validator above owns metric strings/geometry; generic
+            # report metric is a routing number. Its own bounded traversal and
+            # the final canonical byte cap still cover this complete subtree.
+            minimum_size += len(canonical(value).encode('utf-8'))
+            if minimum_size > MAX_BYTES:
+                raise ValueError('Case snapshot exceeds 16 MiB.')
+            continue
         if depth > 64:
             raise ValueError('Case snapshot exceeds 64 nesting levels.')
         minimum_size += 1

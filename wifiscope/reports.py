@@ -31,7 +31,8 @@ def _packets_html(prepared):
     rows = ''.join('<tr>' + ''.join('<td>' + html.escape(str(context.get(field, '')), quote=True) + '</td>'
         for field in ('source_sha256', 'packets', 'captured_bytes', 'plaintext_http_packets', 'dns_queries', 'dns_nxdomain', 'partial')) + '</tr>'
         for context in contexts if isinstance(context, dict))
-    return '<section><h2>Offline packet metadata</h2><p>Only bounded metadata is retained. Capture scope and gaps limit conclusions; checksums, retransmission causes, timing accuracy and offload behavior are not established. Distinct captures retain separate counts.</p><table><tr><th>Source</th><th>Packets</th><th>Captured bytes</th><th>HTTP requests</th><th>DNS queries</th><th>NXDOMAIN responses</th><th>Partial</th></tr>' + rows + '</table></section>'
+    heading = 'Live capture packet metadata' if 'capture_session' in prepared else 'Offline packet metadata'
+    return '<section><h2>' + heading + '</h2><p>Only bounded metadata is retained. Capture scope and gaps limit conclusions; checksums, retransmission causes, timing accuracy and offload behavior are not established. Distinct captures retain separate counts.</p><table><tr><th>Source</th><th>Packets</th><th>Captured bytes</th><th>HTTP requests</th><th>DNS queries</th><th>NXDOMAIN responses</th><th>Partial</th></tr>' + rows + '</table></section>'
 
 
 def export_report(report: dict, directory: str | Path, include_identifiers: bool = False) -> dict[str, str]:
@@ -65,6 +66,18 @@ def export_report(report: dict, directory: str | Path, include_identifiers: bool
     html_rows = ''.join('<tr><th>' + html.escape(field, quote=True) + '</th><td>' + html.escape('' if value is None else str(value), quote=True) + '</td></tr>' for field, value in rows)
     from .report_html import render
     document = render(prepared, html_rows, _packets_html(prepared))
+    heatmap = None
+    if 'wifi_survey' in prepared:
+        from .heatmap import interpolate_survey, render_heatmap_svg
+        survey = prepared['wifi_survey']
+        if 'grid' not in survey:
+            survey = interpolate_survey(survey)
+        heatmap = render_heatmap_svg(survey, synthetic=(
+            prepared.get('synthetic') is True or 'synthetic-demo' in prepared.get('gaps', [])
+        ))
+        grid = survey['grid']
+        section = '<section><h2>Wireless survey</h2><p>Signal observations only; estimates require three distinct nearby non-collinear locations and remain inside their convex hull. Signal does not establish throughput, interference or security.</p><p>Measured readings: ' + str(grid['measured_count']) + '; unknown readings: ' + str(grid['unknown_count']) + '; estimated cells: ' + str(grid['estimated_count']) + '.</p></section>'
+        document = document.replace('</body>', section + '</body>')
     staging = Path(tempfile.mkdtemp(prefix='.wifiscope-', dir=directory.parent))
     published = []
     reserved = False
@@ -72,13 +85,18 @@ def export_report(report: dict, directory: str | Path, include_identifiers: bool
         (staging / 'report.json').write_text(json.dumps(prepared, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
         (staging / 'report.csv').write_text(buffer.getvalue(), encoding='utf-8-sig', newline='')
         (staging / 'report.html').write_text(document, encoding='utf-8')
+        if heatmap is not None:
+            (staging / 'heatmap.svg').write_text(heatmap, encoding='utf-8')
         # Both directory reservation and hard-link creation fail if the output
         # already exists. Hard links expose only completed files and never replace.
         directory.mkdir(exist_ok=False)
         reserved = True
-        for suffix in ('json', 'csv', 'html'):
-            target = directory / ('report.' + suffix)
-            os.link(staging / ('report.' + suffix), target)
+        names = ['report.json', 'report.csv', 'report.html']
+        if heatmap is not None:
+            names.append('heatmap.svg')
+        for name in names:
+            target = directory / name
+            os.link(staging / name, target)
             published.append(target)
     except BaseException:
         for target in published:
@@ -91,7 +109,10 @@ def export_report(report: dict, directory: str | Path, include_identifiers: bool
         raise
     finally:
         shutil.rmtree(staging)
-    return {suffix: str(directory / ('report.' + suffix)) for suffix in ('json', 'csv', 'html')}
+    result = {suffix: str(directory / ('report.' + suffix)) for suffix in ('json', 'csv', 'html')}
+    if heatmap is not None:
+        result['svg'] = str(directory / 'heatmap.svg')
+    return result
 
 
 def compare_reports(before: dict, after: dict) -> dict:

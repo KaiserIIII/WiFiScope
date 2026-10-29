@@ -17,6 +17,12 @@ from .workstation import controlled_report, existing_case, load_json, open_evide
 def parser():
     p = argparse.ArgumentParser(prog='wifiscope', description='Local evidence workstation. Active checks require an explicit authorized target. No dependency installation required.')
     commands = p.add_subparsers(dest='command')
+    from .vulnerability_cli import add_parser
+    add_parser(commands)
+    from .capture_cli import add_parser as add_capture_parser
+    add_capture_parser(commands)
+    from .survey_cli import add_parser as add_survey_parser
+    add_survey_parser(commands)
     commands.add_parser('gui', help='Open the Chinese Tk workstation (default)')
     for name in ('demo', 'collect', 'probe', 'audit', 'analyze', 'import-scan', 'packets', 'compare', 'merge'):
         sub = commands.add_parser(name)
@@ -132,6 +138,19 @@ def main(argv=None):
             raise ValueError('audit requires --out with a new bundle directory for partial evidence.')
         if args.command == 'demo':
             report = demo_report()
+        elif args.command == 'capture':
+            if args.list_interfaces:
+                from .capture_cli import list_interfaces
+                _json(list_interfaces(args))
+                return 0
+            from .capture_cli import run
+            report = run(args)
+        elif args.command == 'vuln':
+            from .vulnerability_cli import run
+            report = run(args)
+        elif args.command == 'survey':
+            from .survey_cli import run
+            report = run(args)
         elif args.command == 'collect':
             report = build_investigation(collect_local())
         elif args.command == 'probe':
@@ -158,6 +177,8 @@ def main(argv=None):
         # Historical run cancellation is evidence, not cancellation of this merge.
         if args.command == 'merge':
             return 0
+        if args.command == 'capture':
+            return 130 if report['capture_session']['status'] == 'cancelled' else 1 if report['capture_session']['status'] == 'partial' else 0
         run = report.get('run', {})
         return 130 if run.get('status') == 'cancelled' else 1 if run.get('status') in ('partial', 'deadline') else 0
     except (OSError, ValueError, UnicodeError, RecursionError, TypeError, KeyError) as error:

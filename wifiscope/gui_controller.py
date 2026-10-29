@@ -26,6 +26,11 @@ class Controller:
         self.stop = threading.Event()
         self.messages = queue.Queue()
         self.owner = threading.get_ident()
+        self.tool_owner = None
+        self.tool_progress = None
+        self.tool_result = None
+        self.tool_error = None
+        self.active_tool_owner = None
 
     def _main(self):
         if threading.get_ident() != self.owner:
@@ -39,15 +44,52 @@ class Controller:
         self.stop = threading.Event()
         self.status = 'Running / 进行中: ' + label
         self.result = None
+        stop = self.stop
+        is_tool = kind in ('tool-result', 'tool-apply')
+        tool_owner = self.tool_owner if is_tool else None
+        self.active_tool_owner = tool_owner
         def execute():
             try:
-                result = work(self.stop)
-                self.messages.put((kind, label, result, self.stop.is_set()))
+                result = work(stop)
+                if is_tool:
+                    result = (tool_owner, result)
+                self.messages.put((kind, label, result, stop.is_set()))
             except Exception as error:
                 code = error.code if isinstance(error, GuidanceError) else error_code
-                self.messages.put(('error', label, ERRORS.get(code, ERRORS['unknown']), self.stop.is_set()))
+                value = ERRORS.get(code, ERRORS['unknown'])
+                self.messages.put(('tool-error' if is_tool else 'error', label,
+                                   (tool_owner, value) if is_tool else value, stop.is_set()))
         self.worker = threading.Thread(target=execute, daemon=True, name='wifiscope-worker')
         self.worker.start()
+
+    def start_tool(self, label, work, owner):
+        """Run one preview operation through the same worker/cancel/queue gate."""
+        self._main()
+        if owner != self.tool_owner:
+            raise ValueError('Tool panel is closed.')
+        if self.busy:
+            raise GuidanceError('busy')
+        self.tool_result = self.tool_progress = self.tool_error = None
+        def progress(value):
+            if (not isinstance(value, dict) or value.get('status') not in ('running', 'complete', 'cancelled', 'partial')
+                    or any(type(value.get(k)) is not int or not 0 <= value[k] <= 2**53 - 1
+                           for k in ('packets', 'captured_bytes', 'elapsed_ms'))):
+                raise ValueError('Invalid capture progress counters.')
+            self.messages.put(('tool-progress', label, (owner, {k: value[k] for k in
+                               ('packets', 'captured_bytes', 'elapsed_ms', 'status')}), False))
+        self.start(label, lambda cancel: work(cancel, progress), 'tool-result')
+
+    def apply_tool(self, report, source, owner):
+        """Validate an explicitly chosen replacement in the shared worker."""
+        self._main()
+        if owner != self.tool_owner:
+            raise ValueError('Tool panel is closed.')
+        report = copy.deepcopy(report)
+        self.tool_error = None
+        def work(cancel):
+            validate_report(report)
+            return report
+        self.start(source, work, 'tool-apply')
 
     def cancel(self):
         self.stop.set()
@@ -56,6 +98,10 @@ class Controller:
     def accept(self, report, source):
         self._main()
         validate_report(report)
+        self._assign_validated(report, source)
+
+    def _assign_validated(self, report, source):
+        self._main()
         self.report = report
         self.source = source
         self.overlay = {}
@@ -72,6 +118,28 @@ class Controller:
             except queue.Empty:
                 break
             changed = True
+            if kind == 'tool-progress':
+                owner, counters = value
+                if owner == self.tool_owner:
+                    previous = self.tool_progress or {}
+                    if all(counters[k] >= previous.get(k, 0) for k in ('packets', 'captured_bytes', 'elapsed_ms')):
+                        self.tool_progress = counters
+                continue
+            if kind in ('tool-result', 'tool-error', 'tool-apply'):
+                self.busy = False
+                self.active_tool_owner = None
+                owner, payload = value
+                if owner == self.tool_owner:
+                    if kind == 'tool-apply':
+                        self._assign_validated(payload, label)
+                        self.status = '工具结果已明确应用；请另存案件快照。'
+                    elif kind == 'tool-error':
+                        self.tool_error = payload
+                        self.status = payload
+                    else:
+                        self.tool_result = payload
+                        self.status = ('已取消，保留已有工具结果' if cancelled else '工具结果已就绪') + ' · 尚未应用到当前快照'
+                continue
             self.busy = False
             self.result = value
             if kind == 'error':

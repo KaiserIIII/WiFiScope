@@ -21,7 +21,7 @@ def analyze_capture(data: bytes) -> dict:
     gaps. Packet timestamps are original evidence; import time is separate.
     """
     gaps = set()
-    summary = dict(packets=0, captured_bytes=0, protocol_counts={}, endpoints=[], conversations=[],
+    summary = dict(packets=0, captured_bytes=0, wire_bytes=0, protocol_counts={}, endpoints=[], conversations=[],
         tcp_syn_packets=0, tcp_reset_packets=0, dns_queries=0, dns_nxdomain=0,
         plaintext_http_packets=0, arp_bindings=[], observations=[])
     protocols, endpoints, conversations, bindings, conflicts = Counter(), {}, {}, {}, set()
@@ -85,21 +85,36 @@ def analyze_capture(data: bytes) -> dict:
         row['packets'] += 1
         row['bytes'] += size
 
-    for link, frame, observed in records(data, gaps):
+    for link, frame, observed, original in records(data, gaps):
         summary['packets'] += 1
         summary['captured_bytes'] += len(frame)
+        summary['wire_bytes'] += original
         if observed is None:
             unknown_time = True
         elif first_time is None or observed < first_time:
             first_time = observed
-        if link != 1:
+        if link not in (0, 1, 101, 113, 276):
             gaps.add('packet-linktype-unsupported')
             continue
-        if len(frame) < 14:
+        minimum = {0: 4, 1: 14, 101: 1, 113: 16, 276: 20}[link]
+        if len(frame) < minimum:
             gaps.add('packet-truncated')
             continue
-        kind = struct.unpack_from('!H', frame, 12)[0]
-        start, vlans = 14, 0
+        if link == 1:
+            kind, start = struct.unpack_from('!H', frame, 12)[0], 14
+        elif link == 0:
+            # DLT_NULL family is the capturing host's byte order. Accept both
+            # byte orders and documented BSD/Linux IPv6 family values.
+            families = (struct.unpack_from('<I', frame)[0], struct.unpack_from('>I', frame)[0])
+            kind = 0x800 if 2 in families else 0x86dd if any(f in (10, 24, 28, 30) for f in families) else 0
+            start = 4
+        elif link == 101:
+            kind, start = {4: 0x800, 6: 0x86dd}.get(frame[0] >> 4, 0), 0
+        elif link == 113:
+            kind, start = struct.unpack_from('!H', frame, 14)[0], 16
+        else:
+            kind, start = struct.unpack_from('!H', frame)[0], 20
+        vlans = 0
         while kind in (0x8100, 0x88a8, 0x9100):
             vlans += 1
             if vlans > 4:

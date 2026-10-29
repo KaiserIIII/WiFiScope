@@ -37,7 +37,7 @@ def _options(body, start, endian):
 
 
 def records(data, gaps):
-    """Yield linktype, bounded frame, original time; reject corrupt framing."""
+    """Yield linktype, bounded frame, original time, wire length."""
     if not isinstance(data, bytes) or len(data) > MAX_BYTES:
         raise ValueError('Capture must be bytes of at most 16 MiB.')
     magic = data[:4]
@@ -66,7 +66,7 @@ def records(data, gaps):
             if len(frame) < captured or captured < original:
                 gaps.add('packet-truncated')
             # Upper bits carry link-layer metadata such as FCS presence/length.
-            yield link & 0xffff, frame, timestamp(sec + fraction / unit)
+            yield link & 0xffff, frame, timestamp(sec + fraction / unit), original
             offset += captured
         return
     if magic != b'\x0a\x0d\x0d\x0a':
@@ -154,7 +154,7 @@ def records(data, gaps):
             count += 1
             if count > MAX_PACKETS:
                 raise ValueError('Capture exceeds 100000 packets.')
-            yield link, body[start:start + captured], timestamp(((high << 32) | low) / resolution + shift) if kind == 6 else None
+            yield link, body[start:start + captured], timestamp(((high << 32) | low) / resolution + shift) if kind == 6 else None, original
         else:
             gaps.add('packet-block-unsupported')
         offset += length

@@ -17,6 +17,31 @@ def table(title, fields, rows):
     return '<h2>' + esc(title) + '</h2><div class="scroll"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>'
 
 
+def security_sections(prepared):
+    """Only controlled labels plus projected typed fields, never imported prose."""
+    content = ''
+    if 'vulnerability_audit' in prepared:
+        data = prepared['vulnerability_audit']
+        content += table('漏洞审计 / Vulnerability audit · reviewed subset',
+                         ('catalog_version', 'rule_count', 'reviewed_at', 'source', 'sha256'), [data['catalog']])
+        content += table('审计覆盖 / Audit coverage', ('evaluated_services', 'unknown_services', 'baseline_checks', 'candidates'), [data['summary']])
+        content += '<p>版本匹配仅为候选；须核查配置适用性及发行版回补。无匹配不表示安全。按供应商建议修复并在相同范围复测。</p>'
+        rows = [dict(item, affected_ranges=json.dumps(item['affected'], ensure_ascii=True, sort_keys=True)) for item in data['candidates']]
+        content += table('CVE candidates / 待核查候选', ('cve', 'severity', 'confidence', 'status', 'address', 'port', 'product', 'version', 'source', 'observed_at', 'affected_ranges', 'gaps', 'references'), rows)
+    if 'capture_session' in prepared:
+        data = prepared['capture_session']
+        content += table('抓包会话 / Capture session', ('backend', 'interface', 'started_at', 'ended_at', 'duration_ms', 'status', 'stop_reason', 'packets', 'analyzed_packets', 'captured_bytes', 'wire_bytes', 'partial'), [data])
+        content += table('抓包限额 / Capture limits', ('duration_seconds', 'max_packets', 'max_bytes', 'snaplen'), [data['limits']])
+        content += table('丢包统计 / Drop statistics · Unknown is not zero', ('received', 'dropped', 'interface_dropped'), [data['pcap_stats']])
+        content += '<p>仅包含元数据；前缀可能截断，丢包统计可能未知。捕获字节不是带宽或互联网测速。原始文件、路径与过滤表达式不进入报告。</p>'
+    if 'wifi_survey' in prepared:
+        data = prepared['wifi_survey']
+        content += table('Wi-Fi 调查 / Wireless survey', ('ssid', 'bssid', 'metric'), [data])
+        content += '<p>读数与估计分别解释。至少三个非共线位置及每格三个半径内贡献点支持估计；灰色未知区域不补值。信号不证明吞吐、干扰或安全。背景图与本地路径不进入报告；随附 heatmap.svg 为独立安全图。</p>'
+        content += table('调查测点 / Survey readings', ('x', 'y', 'value', 'observed_at', 'source', 'gap'), data['samples'])
+    return content
+
+
 def render(prepared, typed_rows, packets_html):
     if 'comparison' in prepared:
         from .case_validation import validate_comparison
@@ -64,6 +89,6 @@ def render(prepared, typed_rows, packets_html):
             comparison += '<p>Persisted snapshot ID: ' + esc(side.get('snapshot_id')) + ' · Original collection time: ' + esc(side.get('collected_at')) + '</p>'
             comparison += table(key.title() + ' coverage', ('category', 'status', 'partial', 'planned', 'evaluated', 'unattempted'), side.get('coverage', []))
             comparison += '<details><summary>Assets, source times and gaps</summary><pre>' + esc(json.dumps(side, ensure_ascii=False, indent=2)) + '</pre></details>'
-    content = guidance + (comparison if is_comparison else '<h2>Prioritized findings</h2>' + (''.join(finding_cards) or '<p>No prioritized findings observed; missing evidence does not establish security.</p>') + table('Assets', ('id', 'address', 'family', 'status'), assets) + table('Services', ('address', 'port', 'protocol', 'state', 'service', 'source', 'observed_at'), services) + table('Coverage', ('category', 'status', 'reason', 'count_unit', 'planned', 'attempted', 'evaluated', 'unattempted', 'partial'), coverage) + sources + packets_html)
+    content = guidance + (comparison if is_comparison else '<h2>Prioritized findings</h2>' + (''.join(finding_cards) or '<p>No prioritized findings observed; missing evidence does not establish security.</p>') + table('Assets', ('id', 'address', 'family', 'status'), assets) + table('Services', ('address', 'port', 'protocol', 'state', 'service', 'source', 'observed_at'), services) + table('Coverage', ('category', 'status', 'reason', 'count_unit', 'planned', 'attempted', 'evaluated', 'unattempted', 'partial'), coverage) + sources + packets_html + security_sections(prepared))
     css = """*{box-sizing:border-box}body{font:15px/1.55 system-ui,'Microsoft YaHei',sans-serif;background:#eef2f7;color:#17263d;margin:0}main{max-width:1220px;margin:auto;padding:28px}header{background:#142941;color:#f6f9ff;padding:25px;border-radius:12px}header h1{margin:0 0 8px;font-size:30px}header p{margin:5px 0;color:#d5e2f1}.synthetic{padding:14px 18px;margin:18px 0;background:#fff0c2;border-left:5px solid #ae6d00;font-weight:650}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0}.metric{padding:17px;background:white;border:1px solid #d5deea;border-radius:10px}.metric strong{display:block;font-size:28px}.metric span{color:#4f627a}.scope{background:#e1eaf7;border-radius:10px;padding:16px 20px}.scope p{margin:6px 0}h2{margin-top:30px;font-size:22px}h3{font-size:18px}.finding{background:white;border:1px solid #d5deea;border-left:4px solid #bc6c20;border-radius:8px;padding:18px 22px;margin:14px 0}.finding p{max-width:100ch}.badge{display:inline-block;white-space:nowrap;padding:3px 10px;margin:0 7px 5px 0;border-radius:5px;background:#e6edf5;font-size:13px;font-weight:650}table{border-collapse:collapse;background:white;width:100%;font-size:14px}th{white-space:nowrap;background:#dae4f0}th,td{border:1px solid #cdd8e5;padding:10px 12px;text-align:left;vertical-align:top}td{overflow-wrap:anywhere;min-width:90px}tr:nth-child(even){background:#f7f9fc}.scroll{overflow:auto}details{padding:12px;background:#f4f7fb;border:1px solid #d7e1ed;border-radius:6px;margin:10px 0}summary{cursor:pointer;font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,monospace}footer{margin-top:25px;color:#52657e}@media(max-width:700px){main{padding:14px}.metrics{grid-template-columns:repeat(2,1fr)}.finding{padding:14px}}"""
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;"><title>WiFiScope report</title><style>' + css + '</style></head><body><main><header><h1>WiFiScope · Evidence report</h1><p>Security investigation / 安全调查</p><p>Sources: ' + esc(source) + ' · Collected: ' + esc(prepared.get('collected_at')) + '</p></header>' + banner + scope + '<div class="metrics">' + cards + '</div>' + content + '<h2>Typed evidence</h2><details><summary>Inspect all allowlisted measurements</summary><div class="scroll"><table><tr><th>Field</th><th>Value</th></tr>' + typed_rows + '</table></div></details><footer>Observations are limited evidence; absence of findings does not establish security. TCP timings do not measure throughput. Pseudonymization minimizes identifiers but does not guarantee anonymity.</footer></main></body></html>'

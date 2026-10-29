@@ -4,6 +4,53 @@ import struct
 from .audit import assess
 
 
+def vulnerability_demo():
+    """Synthetic vulnerable and adjacent fixed controls through the real matcher."""
+    from .vulnerabilities import audit_vulnerabilities
+    report = demo_report()
+    stamp = '2026-10-28T12:00:00+00:00'
+    for index, (product, version) in enumerate([('Apache httpd', '2.4.49'), ('Apache httpd', '2.4.60'),
+                                               ('OpenSSH', '9.7p1'), ('OpenSSH', '9.8p1'),
+                                               ('nginx', '1.20.0'), ('nginx', '1.20.1')]):
+        report['assets'].append(dict(address=f'192.0.2.{100 + index}', status='up', source='nmap', observed_at=stamp,
+                                    services=[dict(port=443 if product != 'OpenSSH' else 22, protocol='tcp', state='open',
+                                                   product=product, version=version, identification='probed', source='nmap', observed_at=stamp)]))
+    return audit_vulnerabilities(report)
+
+
+def capture_demo():
+    """Real offline packet parser only; never opens a live/native handle."""
+    from .capture_schema import validate_capture_session
+    from .investigate import build_investigation
+    report = demo_report()
+    packet = report['packet_analysis']
+    report['capture_session'] = dict(schema_version=1, id='synthetic-capture', interface='synthetic-offline-adapter',
+        backend='npcap', source_sha256=packet['source_sha256'], source='measured', timestamp_source='native-unspecified',
+        started_at='2026-01-01T00:00:00+00:00', ended_at='2026-01-01T00:00:00+00:00', duration_ms=0,
+        status='complete', stop_reason='eof', packets=packet['packets'], analyzed_packets=packet['packets'],
+        captured_bytes=packet['captured_bytes'], wire_bytes=packet['wire_bytes'], storage_bytes=packet['input_bytes'],
+        raw_packets=0, raw_retained=False, retain_packets=False, promiscuous=False, filter_applied=False,
+        filter_requested=False, linktype=1, partial=True, analysis_limited=False,
+        limits=dict(duration_seconds=10, max_packets=2000, max_bytes=8388608, snaplen=96, max_storage_bytes=16777216),
+        pcap_stats=dict(received=None, dropped=None, interface_dropped=None))
+    validate_capture_session(report['capture_session'])
+    return build_investigation(report)
+
+
+def survey_demo():
+    """Actual IDW engine with synthetic dots, estimated center and unknown area."""
+    from .heatmap import interpolate_survey
+    from .investigate import build_investigation
+    data = dict(schema_version=1, id='synthetic-survey', ssid='Synthetic Survey SSID', bssid='02:00:00:00:00:33',
+                metric='signal_percent', samples=[])
+    for index, (x, y, value) in enumerate([(.2, .2, 85), (.65, .2, 55), (.2, .65, 35), (.55, .55, 65), (.9, .9, None)]):
+        data['samples'].append(dict(id=f'synthetic-point-{index}', x=x, y=y, value=value,
+                                    observed_at='2026-10-28T12:00:00+00:00', source='imported',
+                                    gap='signal-unavailable' if value is None else None))
+    return build_investigation(dict(schema_version=1, synthetic=True, gaps=['synthetic-demo'],
+                                    wifi_survey=interpolate_survey(data, radius=.7)))
+
+
 def demo_report() -> dict:
     """Return a fresh fixture using documentation-only addresses."""
     report = dict(schema_version=1, collected_at='2026-01-01T00:00:00+00:00', platform='Demo',

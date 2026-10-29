@@ -25,6 +25,8 @@ def comparison_notice(report):
 
 
 def compare_snapshots(before, after, *, before_id=None, after_id=None):
+    if 'catalog_audit' in before or 'catalog_audit' in after:
+        raise ValueError('Compare catalog audit contexts separately; inventory applicability cannot be reduced to address changes.')
     identity = before.get('identifiers_included') is True and after.get('identifiers_included') is True
 
     def side(report):

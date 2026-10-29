@@ -149,6 +149,8 @@ def merge_reports(reports: list[dict]) -> dict:
     """
     if not isinstance(reports, list) or len(reports) > 16 or any(not isinstance(r, dict) for r in reports):
         raise ValueError('Merge accepts at most 16 report dictionaries.')
+    if any('catalog_audit' in report for report in reports):
+        raise ValueError('Merging catalog audits requires separate inventory contexts; merge original evidence and run a new catalog audit.')
     if any('vulnerability_audit' in report for report in reports):
         raise ValueError('Merging audited reports requires separate audit contexts. Merge original evidence first, then run a new local vulnerability audit.')
     if any('capture_session' in report for report in reports):
@@ -429,6 +431,22 @@ def build_investigation(report: dict) -> dict:
             findings.append(dict(id=candidate['id'], code='cve-version-match', severity=candidate['severity'],
                 confidence=candidate['confidence'], status=candidate['status'], category='local-vulnerability-audit',
                 title=title, evidence=evidence, recommendation=recommendation, retest=retest))
+    catalog_audit = result.get('catalog_audit')
+    if isinstance(catalog_audit, dict):
+        collected_ids = {asset['id'] for asset in assets.values()}
+        for inventory_asset in catalog_audit['inventory']['assets']:
+            if inventory_asset['id'] in collected_ids:
+                raise ValueError('Inventory asset IDs conflict with collected asset IDs; choose distinct explicit IDs.')
+            assets[('inventory', inventory_asset['id'])] = dict(id=inventory_asset['id'],
+                type='inventory', address=inventory_asset.get('address'), services=[], observations=[], gaps=[])
+        for candidate in catalog_audit['results']:
+            code = 'catalog-modeled-match' if candidate['applicability'] == 'true' else 'catalog-applicability-unknown'
+            title, recommendation, retest = templates[code]
+            evidence = dict(asset_id=candidate['asset_id'], component_ids=list(candidate['component_ids']),
+                            cves=[candidate['cve']], source='local')
+            findings.append(dict(id=candidate['id'], code=code, severity=candidate['severity'],
+                confidence='low', status=candidate['status'], category='catalog-applicability',
+                title=title, evidence=evidence, recommendation=recommendation, retest=retest))
     for finding in assess(result):
         add(finding['code'], finding['evidence'], 'medium' if finding['severity'] == 'warning' else 'info',
             'low' if finding['code'] == 'mixed-security' else 'high',
@@ -460,6 +478,13 @@ def build_investigation(report: dict) -> dict:
         coverage.append(dict(category='local-vulnerability-audit', status='observed' if has_versions else 'unavailable', source='local',
             reason='observed-evidence' if has_versions else 'evidence-unavailable', planned=None, attempted=None, evaluated=audit['summary']['evaluated_services'],
             unattempted=audit['summary']['unknown_services'], count_unit='observations', partial=True))
+    if isinstance(catalog_audit, dict):
+        summary = catalog_audit['summary']
+        coverage.append(dict(category='catalog-applicability', status='observed', source='local',
+            reason='observed-evidence', planned=None, attempted=summary['evaluated_pairs'],
+            evaluated=summary['true_pairs'] + summary['not_matched_pairs'],
+            unattempted=summary['unexamined_pairs'], unknown=summary['unknown_pairs'],
+            count_unit='observations', partial=True))
     result['investigation'] = dict(assets=list(assets.values()), findings=findings, coverage=coverage,
         gaps=list(dict.fromkeys(gaps)), summary=dict(
             priorities={severity: sum(f['severity'] == severity for f in findings) for severity in priorities},

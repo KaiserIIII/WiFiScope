@@ -69,7 +69,7 @@ class Workstation:
         security_bar = ttk.Frame(self.root, padding=(16, 3))
         security_bar.pack(fill='x')
         self.security_buttons = []
-        for key, label in [('vulnerability', '漏洞审计'), ('capture', '实时抓包'), ('survey', 'Wi-Fi 热力图')]:
+        for key, label in [('catalog', '漏洞库与资产清单'), ('vulnerability', '漏洞审计'), ('capture', '实时抓包'), ('survey', 'Wi-Fi 热力图')]:
             button = ttk.Button(security_bar, text=label, command=lambda k=key: self.open_security_tools(k))
             button.pack(side='left', padx=(0, 8))
             self.security_buttons.append(button)
@@ -401,7 +401,8 @@ class Workstation:
         tree.delete(*tree.get_children())
         for index, row in enumerate(rows):
             values = [row.get(name, '—') for name in tree['columns']]
-            tree.insert('', 'end', iid=str(index), values=['—' if v is None else str(v) for v in values], tags=(row.get('severity', ''),))
+            tag = 'unknown' if key == 'findings' and row.get('code') == 'catalog-applicability-unknown' else row.get('severity', '')
+            tree.insert('', 'end', iid=str(index), values=['—' if v is None else str(v) for v in values], tags=(tag,))
 
     def render_findings(self):
         report = self.controller.report or {}
@@ -462,6 +463,13 @@ class Workstation:
                         f"目录 {audit['catalog']['catalog_version']} · 规则 {audit['catalog']['rule_count']} · 复核 {audit['catalog']['reviewed_at']} · 来源 {audit['catalog']['source']}",
                         f"已评估服务 {audit['summary']['evaluated_services']} · 未知 {audit['summary']['unknown_services']} · 候选 {audit['summary']['candidates']}",
                         '需核查回补与配置适用性；无匹配不表示安全。']
+        if 'catalog_audit' in report:
+            audit = report['catalog_audit']
+            counts = audit['summary']
+            summary += ['', '漏洞库与资产清单 · 声明/导入身份，非安装或利用确认',
+                        f"收录 CVE {audit['catalog']['records']} · 状态 {audit['status']} · 已评估资产-CVE 对 {counts['evaluated_pairs']}",
+                        f"模型匹配 {counts['true_pairs']} · 未知条件 {counts['unknown_pairs']} · 不匹配 {counts['not_matched_pairs']} · 未评估 {counts['unexamined_pairs']}",
+                        '未知条件以中性颜色列出；CVE 严重度仍是来源元数据，不证明该资产受影响。无匹配不是安全证明。']
         if 'capture_session' in report:
             session = report['capture_session']
             summary += ['', '抓包会话 · 元数据', f"{session['status']} / {session['stop_reason']} · {session['duration_ms']} ms · {session['packets']} 包 / 分析 {session['analyzed_packets']} 包",

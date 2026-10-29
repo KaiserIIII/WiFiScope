@@ -6,6 +6,9 @@ from a report/catalog, plugin registration, or separate identity keys.
 
 
 def validate_extensions(report) -> None:
+    if 'catalog_audit' in report:
+        from .catalog_audit_schema import validate_catalog_audit
+        validate_catalog_audit(report['catalog_audit'])
     if 'vulnerability_audit' in report:
         from .vulnerability_schema import validate_vulnerability_audit
         validate_vulnerability_audit(report['vulnerability_audit'])
@@ -19,6 +22,9 @@ def validate_extensions(report) -> None:
 
 def project_extensions(report, identity) -> dict:
     result = {}
+    if 'catalog_audit' in report:
+        from .catalog_audit_schema import project_catalog_audit
+        result['catalog_audit'] = project_catalog_audit(report['catalog_audit'], identity)
     if 'vulnerability_audit' in report:
         from .vulnerability_schema import project_vulnerability_audit
         result['vulnerability_audit'] = project_vulnerability_audit(report['vulnerability_audit'], identity)

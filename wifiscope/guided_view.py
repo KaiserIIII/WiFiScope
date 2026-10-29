@@ -43,7 +43,7 @@ class GuidedView:
         self.demo_button.pack(anchor='w', pady=8)
         deep = ttk.Frame(inner)
         deep.pack(fill='x', pady=5)
-        for key, label in [('vulnerability', '漏洞审计 · 已有证据'), ('capture', '实时抓包 · 先授权'), ('survey', 'Wi-Fi 热力图 · 定点采样')]:
+        for key, label in [('catalog', '漏洞库与清单'), ('vulnerability', '漏洞审计 · 已有证据'), ('capture', '实时抓包 · 先授权'), ('survey', 'Wi-Fi 热力图 · 定点采样')]:
             ttk.Button(deep, text=label, command=lambda k=key: app.open_security_tools(k)).pack(side='left', padx=(0, 6))
         target = ttk.LabelFrame(inner, text='指定设备 / 服务 · 默认只检查端口 80、443', padding=10)
         target.pack(fill='x', pady=8)
@@ -113,6 +113,11 @@ class GuidedView:
         if notice:
             lines = [notice]
         lines += [summary['coverage'], '', summary['observations'], '', '先做什么（最多 3 条当前发现）']
+        if report and 'catalog_audit' in report:
+            audit = report['catalog_audit']
+            counts = audit['summary']
+            lines += [f"漏洞库收录 {audit['catalog']['records']}；已评估资产-CVE 对 {counts['evaluated_pairs']}；模型匹配 {counts['true_pairs']}；未知条件 {counts['unknown_pairs']}；不匹配 {counts['not_matched_pairs']}；未评估 {counts['unexamined_pairs']}。",
+                      '未知条件需要补充证据；来源 CVE 严重度不证明资产受影响。声明/导入身份不是安装确认，无匹配不是安全证明。']
         for item in summary['priorities']:
             lines += ['', item['plain_title'], '优先级：' + SEVERITY[item['severity']] + ' · 置信：' + CONFIDENCE[item['confidence']] + ' · 状态：' + STATUS[item['status']], item['observation'], item['meaning'], '下一步：' + item['next_step'], '如何复测：' + item['retest']]
         self.app._text(self.results, '\n'.join(lines))

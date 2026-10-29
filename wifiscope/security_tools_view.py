@@ -70,10 +70,12 @@ class SecurityToolsView:
         from .vulnerability_view import VulnerabilityView
         from .capture_view import CaptureView
         from .survey_view import SurveyView
+        from .catalog_view import CatalogView
 
         self.panels = {}
         self.scroll_pages = {}
         for key, label, cls in [
+            ("catalog", "漏洞库与资产清单", CatalogView),
             ("vulnerability", "漏洞审计", VulnerabilityView),
             ("capture", "实时抓包", CaptureView),
             ("survey", "Wi-Fi 热力图", SurveyView),
@@ -153,10 +155,11 @@ class SecurityToolsView:
         self.window.deiconify()
         self.window.lift()
 
-    def start(self, panel, label, work):
+    def start(self, panel, label, work, *, progress_kind='capture'):
         prepare = getattr(panel, "prepare_result", lambda value: value)
         self.app.controller.start_tool(
-            label, lambda cancel, progress: prepare(work(cancel, progress)), self.token
+            label, lambda cancel, progress: prepare(work(cancel, progress)), self.token,
+            progress_kind=progress_kind
         )
         self.active_panel = panel
         self.seen_result = self.seen_progress = None
@@ -176,7 +179,7 @@ class SecurityToolsView:
         if c.tool_error:
             self.status.set(
                 c.tool_error
-                + " 检查文件/目录、驱动、权限及后端过滤能力；不会自动安装。"
+                + getattr(self.active_panel, 'error_help', " 检查文件/目录、驱动、权限及后端过滤能力；不会自动安装。")
             )
         if c.tool_result is not None and c.tool_result is not self.seen_result:
             self.seen_result = c.tool_result

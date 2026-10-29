@@ -23,6 +23,8 @@ def parser():
     add_capture_parser(commands)
     from .survey_cli import add_parser as add_survey_parser
     add_survey_parser(commands)
+    from .catalog_cli import add_parser as add_catalog_parser
+    add_catalog_parser(commands)
     commands.add_parser('gui', help='Open the Chinese Tk workstation (default)')
     for name in ('demo', 'collect', 'probe', 'audit', 'analyze', 'import-scan', 'packets', 'compare', 'merge'):
         sub = commands.add_parser(name)
@@ -132,6 +134,9 @@ def main(argv=None):
                 print('WiFiScope: Tk unavailable. Use python -m wifiscope demo --out NEW_DIR; enable your OS Python Tk package for the GUI.', file=sys.stderr)
                 return 2
             return launch()
+        if args.command == 'catalog':
+            from .catalog_cli import run as catalog_run
+            return catalog_run(args)
         if args.command == 'case':
             return case_command(args)
         if getattr(args, 'require_out', False) and not args.out:

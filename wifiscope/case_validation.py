@@ -69,10 +69,10 @@ def validate_report(report):
     minimum_size = 0
     while pending:
         value, depth, field = pending.pop()
-        if field == 'wifi_survey' and depth == 1:
-            # Dedicated validator above owns metric strings/geometry; generic
-            # report metric is a routing number. Its own bounded traversal and
-            # the final canonical byte cap still cover this complete subtree.
+        if field in ('wifi_survey', 'catalog_audit') and depth == 1:
+            # Dedicated validators own extension-specific field meanings (such
+            # as survey metric and catalog counters). Their bounded traversal
+            # and the final canonical byte cap cover the complete subtree.
             minimum_size += len(canonical(value).encode('utf-8'))
             if minimum_size > MAX_BYTES:
                 raise ValueError('Case snapshot exceeds 16 MiB.')

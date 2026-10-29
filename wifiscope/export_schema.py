@@ -16,7 +16,7 @@ from .numeric import supported_number
 IDENTITIES = frozenset(('ssid', 'bssid', 'name', 'mac', 'mac_address', 'interface',
     'interface_name', 'interface_alias', 'host', 'hostname', 'hostnames', 'address', 'addresses',
     'gateway', 'destination', 'url', 'urls', 'target', 'targets', 'ip', 'ipv4', 'ipv6',
-    'dns_servers', 'profile', 'id', 'asset_id', 'finding_id', 'source_sha256', 'sha256',
+    'dns_servers', 'profile', 'id', 'asset_id', 'component_ids', 'finding_id', 'source_sha256', 'sha256',
     'certificate_sha256', 'fingerprint', 'issue_id', 'product', 'service', 'cipher',
     'src_address', 'dst_address'))
 STRUCTURES = frozenset(('wifi', 'interfaces', 'routes', 'firewall', 'connectivity',
@@ -58,10 +58,10 @@ ENUMS = {
     'state': {'open', 'closed', 'filtered', 'unfiltered', 'open|filtered', 'closed|filtered'},
     'identification': {'probed', 'table'},
     'source': {'measured', 'local', 'nmap', 'greenbone', 'scanner', 'packets', 'pcap', 'pcapng', 'synthetic', 'mixed'},
-    'type': {'measured', 'local', 'nmap', 'greenbone', 'scanner', 'packets', 'pcap', 'pcapng', 'synthetic'},
+    'type': {'measured', 'local', 'nmap', 'greenbone', 'scanner', 'packets', 'pcap', 'pcapng', 'synthetic', 'inventory'},
     'category': {'network', 'tls', 'http', 'policy', 'scanner', 'wifi', 'firewall', 'wifi-configuration',
         'local-firewall', 'dns-resolution', 'ipv4', 'ipv6', 'tcp-exposure', 'tls-validation',
-        'http-posture', 'offline-packets', 'live-capture', 'external-vulnerability-scan', 'environment-context', 'local-vulnerability-audit', 'wireless-survey'},
+        'http-posture', 'offline-packets', 'live-capture', 'external-vulnerability-scan', 'environment-context', 'local-vulnerability-audit', 'wireless-survey', 'catalog-applicability'},
     'reason': {'imported-evidence', 'observed-evidence', 'evidence-unavailable', 'not-requested', 'multiple-scope-contexts', 'mixed-evidence'},
     'count_unit': {'hosts', 'connections', 'endpoints', 'results', 'observations', 'packets'},
     'scan_status': {'complete', 'partial'},
@@ -136,7 +136,7 @@ def project_report(report: dict, include_identifiers: bool = False) -> dict:
             if field == 'gaps':
                 return [v if v in GAPS else 'evidence-unavailable' for v in value if isinstance(v, str)]
             if field == 'cves':
-                return [v for v in value if isinstance(v, str) and re.fullmatch(r'CVE-\d{4}-\d{4,10}', v)]
+                return [v for v in value if isinstance(v, str) and re.fullmatch(r'CVE-[0-9]{4}-[0-9]{4,19}', v)]
             return [walk(v, field, path) for v in value if isinstance(v, (dict, list))]
         if field == 'schema_version':
             return 1

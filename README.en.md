@@ -26,9 +26,11 @@ The demo contains invented synthetic evidence, never live measurements: WPA2/ope
 
 See [guidance, glossary and privacy choices](docs/usability.md). Main-window raw report export and raw case retention are separate professional opt-ins. Main novice export always redacts. The dedicated tools below have their own explicit export privacy choice in either mode.
 
-## Three security tools
+## Four security tools
 
-The persistent header opens **漏洞审计** (vulnerability audit), **实时抓包** (live capture), and **Wi-Fi 热力图** (survey) in both modes, including 900×620. Panels scroll; Apply, Cancel and Export remain in the footer. Opening, changing modes or clicking a survey position starts no collection. Each explicit offline demo runs real local engines on prominently labeled synthetic evidence.
+The persistent header opens **漏洞库与资产清单** (indexed catalog/inventory), **漏洞审计** (small-pack evidence audit), **实时抓包** (live capture), and **Wi-Fi 热力图** (survey) in both modes. Panels scroll; Apply, Cancel and Export remain in the footer. Opening, changing modes or clicking a survey position starts no collection. Each explicit offline demo runs real local engines on prominently labeled synthetic evidence.
+
+- Indexed catalog: explicitly build a new SQLite file from 1..64 local NVD feeds or open an existing one, browse 20 rows per page, select a typed detail's literal CPE or CNA identity and enter your own asset label/version. No JSON/CPE authoring is required for the form. Alternatively import native schema1, CycloneDX JSON 1.6/1.7 or SPDX JSON SPDX-2.3 with explicit CPE 2.3. Source documents are ≤16 MiB; inventories ≤1024 assets/8192 components. Run against an explicit empty local report or original local evidence, then inspect modeled matches separately from unknown conditions. The full synthetic walkthrough includes two vendors, a CNA-only model, positive/negative controls and missing environment evidence. See [formats, privacy, bounds and measured catalog capacity](docs/catalogs.md).
 
 - Audit existing evidence with the reviewed six-CVE subset or a selected local native/NVD2 catalog and optional SHA256. Results include catalog version/hash/review/source, candidate version ranges, confidence, existing configuration rules and unknown service counts. Check distribution backports and applicability; no match does not establish security.
 - Enumerate and explicitly select one capture interface. Review the default 10 seconds/2,000 packets/8 MiB/96 bytes/non-promiscuous plan, then check adjacent authorization. Edits clear authorization. Larger snapshots or raw files need separate consent because prefixes/full packets may contain private application data. Raw paths must be new; ordinary reports contain metadata only. Windows requires installed Npcap and permissions; Linux requires installed libpcap or AF_PACKET permissions. Nothing is installed automatically.
@@ -67,7 +69,7 @@ Scope, ports and an explicit authorization checkbox sit beside Run/Quick Audit. 
 
 ## CLI examples
 
-Output directories must not already exist. Inputs are read with a 16 MiB bound at read time. JSON stdout is also an export and uses the same default privacy projection.
+Output directories must not already exist. Evidence/SBOM inputs have a 16 MiB bound; indexed feed builds have separate source/expanded limits documented in [catalogs](docs/catalogs.md). JSON stdout is also an export and uses the same default privacy projection.
 
 ```console
 python -m wifiscope collect --out local-report

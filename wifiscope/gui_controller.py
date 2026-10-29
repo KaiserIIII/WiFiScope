@@ -2,6 +2,7 @@
 import copy
 import queue
 import threading
+import time
 
 from .case_validation import validate_report
 from .cases import CaseStore
@@ -31,6 +32,8 @@ class Controller:
         self.tool_result = None
         self.tool_error = None
         self.active_tool_owner = None
+        self._progress_lock = threading.Lock()
+        self._pending_progress = None
 
     def _main(self):
         if threading.get_ident() != self.owner:
@@ -62,7 +65,7 @@ class Controller:
         self.worker = threading.Thread(target=execute, daemon=True, name='wifiscope-worker')
         self.worker.start()
 
-    def start_tool(self, label, work, owner):
+    def start_tool(self, label, work, owner, *, progress_kind='capture'):
         """Run one preview operation through the same worker/cancel/queue gate."""
         self._main()
         if owner != self.tool_owner:
@@ -70,7 +73,37 @@ class Controller:
         if self.busy:
             raise GuidanceError('busy')
         self.tool_result = self.tool_progress = self.tool_error = None
+        fields = {
+            'capture': ('packets', 'captured_bytes', 'elapsed_ms'),
+            'catalog-build': ('records', 'expanded_bytes', 'feed_index', 'elapsed_ms'),
+            'catalog-audit': ('evaluated_pairs', 'retained_results', 'predicates', 'relevant_records', 'identity_queries'),
+            'catalog-local': (),
+        }.get(progress_kind)
+        if fields is None:
+            raise ValueError('Invalid tool progress kind.')
+        previous, last_event = {}, -1.0
         def progress(value):
+            nonlocal previous, last_event
+            if progress_kind != 'capture':
+                if (not isinstance(value, dict) or set(value) != set(fields) | {'status'}
+                        or value.get('status') not in ('running', 'complete', 'cancelled', 'partial')
+                        or any(type(value[k]) is not int or not 0 <= value[k] <= 2**53 - 1 for k in fields)):
+                    raise ValueError('Invalid typed catalog progress counters.')
+                if any(value[k] < previous.get(k, 0) for k in fields):
+                    return
+                previous = dict(value)
+                now = time.monotonic()
+                if value['status'] == 'running' and now-last_event < .2:
+                    return
+                last_event = now
+                # A single queued notification points to one bounded latest
+                # event. Fast producers cannot grow the Tk queue unboundedly.
+                with self._progress_lock:
+                    notify = self._pending_progress is None
+                    self._pending_progress = (owner, dict(value))
+                if notify:
+                    self.messages.put(('typed-tool-progress', label, None, False))
+                return
             if (not isinstance(value, dict) or value.get('status') not in ('running', 'complete', 'cancelled', 'partial')
                     or any(type(value.get(k)) is not int or not 0 <= value[k] <= 2**53 - 1
                            for k in ('packets', 'captured_bytes', 'elapsed_ms'))):
@@ -118,6 +151,12 @@ class Controller:
             except queue.Empty:
                 break
             changed = True
+            if kind == 'typed-tool-progress':
+                with self._progress_lock:
+                    event, self._pending_progress = self._pending_progress, None
+                if event is not None and event[0] == self.tool_owner:
+                    self.tool_progress = event[1]
+                continue
             if kind == 'tool-progress':
                 owner, counters = value
                 if owner == self.tool_owner:

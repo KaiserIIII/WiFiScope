@@ -93,3 +93,24 @@ loading and zoom were not manually verified in that review. Native automation
 occasionally timed out obtaining accessibility/frame state and recovered on a
 fresh view; a persistent mainloop hang was not observed. These observations do
 not establish general performance, field accuracy or novice usability.
+# Indexed desktop and SBOM verification scope
+
+Focused commands: `python -m unittest tests.test_inventory_import tests.test_catalog_gui tests.test_catalog_benchmark`.
+Fixtures are invented local documents. Actual Tk buttons and real shared workers
+exercise build/open/search/detail/pagination, CPE/CNA form versions, multiple
+assets, imported-scope removal, explicit new manual scope, audit/Apply/default-HMAC
+bundle export, no-IO opening/switching, metadata ineligibility, busy/cancel/closed
+owners and worker-owned SQLite connections. SBOM tests cover explicit versions,
+nested entries, source timestamps/digests, unknown time, unsupported/missing CPE,
+duplicate source assertions, no-usable-identity refusal, depth/node/byte/retention
+bounds, cancellation/callback failure, unchanged source bytes and no remote
+resolution. CLI tests check explicit SBOM format with shared default projection.
+The helper test measures only a small synthetic local run and cleanup.
+
+Independent controller official-data/million-row/applicability measurements and
+their accepted code/time/memory units are recorded in [catalogs](catalogs.md).
+Those earlier measurements are not represented as rerun against this desktop
+change. Native visual acceptance, fresh Python 3.13 and hosted CI belong to the
+final integration gates; no result is claimed here before that gate is observed.
+All-CVE coverage, authenticated detection, complete SBOM schema validation,
+installation proof, novice usability and product superiority remain unproved.

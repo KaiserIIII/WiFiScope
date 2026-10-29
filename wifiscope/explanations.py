@@ -16,9 +16,11 @@ COVERAGE = {'wifi-configuration': 'Wi-Fi 配置', 'local-firewall': '本机防�
             'dns-resolution': '地址解析', 'ipv4': 'IPv4 连接', 'ipv6': 'IPv6 连接',
             'tls-validation': 'TLS 证书', 'http-posture': 'HTTP 响应策略', 'tls': 'TLS 证书',
             'offline-packets': '离线抓包元数据', 'external-vulnerability-scan': '外部扫描', 'environment-context': '本机环境',
-            'local-vulnerability-audit': '本地版本漏洞候选核查'}
+            'catalog-applicability': '目录适用性候选核查', 'local-vulnerability-audit': '本地版本漏洞候选核查'}
 # title, observation, implication, safe next action; each key is a shipped rule.
 _ZH = {
+    'catalog-modeled-match': ('目录模型与清单证据匹配', '显式清单符合目录中的产品和环境模型。', '导入或声明的标识不能证明已安装，模型匹配不能证明可利用性。', '核实安装状态、环境条件、配置和厂商回补。'),
+    'catalog-applicability-unknown': ('目录适用性证据不足', '环境、版本顺序或产品证据不足。', '未知不能作为不受影响或安全的结论。', '补充同一资产的证据后重新核查。'),
     'cve-version-match': ('软件版本匹配公告范围', '明确的软件产品和版本匹配本地公告目录。', '配置、平台条件和发行版回补尚未核实，版本匹配不能证明可利用性。', '向负责人核对安装包、厂商公告及回补状态，补充相同授权范围的证据。'),
     'packet-http': ('抓包中有明文 HTTP 请求', '离线抓包记录了 HTTP 请求元数据。', '可能需要加密；元数据不能证明密码泄漏。', '向应用负责人确认是否应使用 HTTPS。'),
     'arp-conflict': ('地址对应关系需要核查', '同一 IP 出现不同 MAC 对应关系。', '高可用、代理 ARP 或地址复用都可能造成差异，不能确认攻击。', '与网络管理员核对 ARP 和高可用配置。'),

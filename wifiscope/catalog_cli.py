@@ -14,7 +14,7 @@ def add_parser(commands):
     audit = actions.add_parser('audit', help='Audit explicit local inventory without collection')
     audit.add_argument('--db', required=True)
     audit.add_argument('--inventory', required=True)
-    audit.add_argument('--inventory-format', choices=('native', 'cyclonedx', 'spdx'), default='native',
+    audit.add_argument('--inventory-format', choices=('native', 'cyclonedx', 'spdx', 'nmap'), default='native',
                        help='Explicit local identity format; no remote resolution')
     audit.add_argument('--input')
     audit.add_argument('--sha256')

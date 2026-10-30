@@ -3,7 +3,7 @@ import copy
 from datetime import datetime, timedelta
 import re
 from .inventory import (validate_inventory, validate_import_context, bounded_json, timestamp,
-                        text, SOURCES, IDENTIFICATIONS, SCHEMES)
+                        text, SOURCES, IDENTIFICATIONS, SCHEMES, validate_addresses, validate_scanner)
 
 GAPS = frozenset(('no-match-not-clearance', 'configuration/backport-unverified', 'audit-cancelled',
                   'audit-work-limit', 'catalog-input-partial', 'inventory-input-partial'))
@@ -70,7 +70,7 @@ def _inventory(value, projected):
     for asset in value['assets']:
         if not isinstance(asset, dict):
             _bad()
-        _keys(asset, {'id', 'components', 'complete_parts'} | ({'address'} if 'address' in asset else set()))
+        _keys(asset, {'id', 'components', 'complete_parts'} | ({'address', 'addresses'} & set(asset)))
         identifier = text(asset['id'])
         identity(identifier)
         if identifier in assets:
@@ -79,6 +79,7 @@ def _inventory(value, projected):
         _codes(asset['complete_parts'], {'a', 'o', 'h'})
         if asset.get('address') is not None:
             identity(asset['address'])
+        validate_addresses(asset, projected=projected)
         if not isinstance(asset['components'], list) or not asset['components']:
             _bad()
         for component in asset['components']:
@@ -86,7 +87,8 @@ def _inventory(value, projected):
             if not isinstance(component, dict) or count > 8192:
                 _bad()
             shape = {'cpe'} if 'cpe' in component else {'vendor', 'product', 'version'}
-            _keys(component, shape | {'id', 'source', 'identification', 'observed_at', 'source_sha256', 'version_scheme'})
+            _keys(component, shape | {'id', 'source', 'identification', 'observed_at', 'source_sha256', 'version_scheme'}
+                  | ({'scanner'} if 'scanner' in component else set()))
             cid = text(component['id'])
             identity(cid)
             if cid in components:
@@ -100,13 +102,14 @@ def _inventory(value, projected):
                     or component['version_scheme'] not in SCHEMES):
                 _bad()
             timestamp(component['observed_at'])
+            validate_scanner(component, asset, projected=projected)
             digest = component['source_sha256']
             if digest is not None and not re.fullmatch(r'(?:[0-9a-f]{64}|id-[0-9a-f]{24})', text(digest)):
                 _bad()
             if projected and digest is not None:
                 identity(digest)
     if 'import_context' in value:
-        validate_import_context(value['import_context'], count, projected=projected)
+        validate_import_context(value['import_context'], count, projected=projected, asset_count=len(assets))
         if projected and value['import_context']['source_sha256'] is not None:
             identity(value['import_context']['source_sha256'])
     if not projected:
@@ -216,6 +219,8 @@ def project_catalog_audit(value, identity):
         for key in ('id', 'address'):
             if key in asset:
                 asset[key] = identity(asset[key])
+        if 'addresses' in asset:
+            asset['addresses'] = [identity(address) for address in asset['addresses']]
         for component in asset['components']:
             for key in ('id', 'cpe', 'vendor', 'product', 'version', 'source_sha256'):
                 if key in component:

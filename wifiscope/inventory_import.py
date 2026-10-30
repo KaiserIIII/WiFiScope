@@ -8,16 +8,7 @@ import hashlib
 from .catalog_store import _safe_path
 from .catalog_stream import _JSONStream, CatalogError
 from .cpe_names import parse_cpe
-from .inventory import MAX_BYTES, timestamp, validate_inventory
-
-
-def _cancel(cancel):
-    try:
-        stopped = cancel is not None and (cancel() if callable(cancel) else cancel.is_set())
-    except Exception:
-        raise ValueError('Inventory cancellation callback failed.') from None
-    if stopped:
-        raise ValueError('Inventory import cancelled; previous inventory preserved.')
+from .inventory import MAX_BYTES, timestamp, validate_inventory, _cancel
 
 
 def _document(path, cancel):
@@ -95,14 +86,17 @@ def _entries(document, format):
 
 
 def import_inventory(path, *, format, cancel=None):
-    """Return independent normalized schema1 from native/CycloneDX/SPDX JSON.
+    """Return independent schema1 from explicit native/SBOM JSON or Nmap XML.
 
     One SBOM becomes one logical asset. IDs hash exact source bytes, traversal
     ordinal and decoded equivalent CPE tokens. Repetition within an entry is
     deduplicated case-insensitively; separate entries remain separate components.
     """
+    if format == 'nmap':
+        from .nmap_inventory import import_nmap_inventory
+        return import_nmap_inventory(path, cancel=cancel)
     if format not in ('native', 'cyclonedx', 'spdx'):
-        raise ValueError('Select native, cyclonedx or spdx explicitly; Nmap CPE adaptation is unsupported.')
+        raise ValueError('Select native, cyclonedx, spdx or nmap explicitly.')
     _cancel(cancel)
     document, digest = _document(path, cancel)
     if format == 'native':

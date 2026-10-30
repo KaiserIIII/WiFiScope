@@ -278,6 +278,7 @@ query; the latter retains its 20-million-instruction ceiling.
 python -m wifiscope catalog audit --db NEW.db --inventory inventory.json --out NEW_AUDIT
 python -m wifiscope catalog audit --db NEW.db --inventory bom.json --inventory-format cyclonedx --out NEW_SBOM_AUDIT
 python -m wifiscope catalog audit --db NEW.db --inventory document.spdx.json --inventory-format spdx
+python -m wifiscope catalog audit --db NEW.db --inventory scan.xml --inventory-format nmap --out NEW_NMAP_AUDIT
 python -m wifiscope catalog audit --db NEW.db --inventory inventory.json --input ORIGINAL_REPORT.json --sha256 DB_SHA256
 ```
 
@@ -334,7 +335,7 @@ copied. This extracts bounded identities, **not full SBOM schema conformance**.
 | native | Exact existing schema1 contract; source/time/complete-parts retained | Unknown schema fields and malformed identity |
 | cyclonedx | JSON `bomFormat=CycloneDX`, `specVersion=1.6` or `1.7`; root/nested `components`, optional `metadata.component`; explicit CPE 2.3 | Tools/dependencies/services/pedigree are not installed components; names/suppliers/PURLs are not CNA/CPE aliases |
 | spdx | JSON `spdxVersion=SPDX-2.3`; packages' SECURITY/cpe23Type externalRefs with explicit CPE 2.3 | `SPDX-2.3.1` root is refused; patch spec title is not a root-version synonym; package names/PURLs/suppliers are not inferred |
-| nmap | No service-CPE inventory adapter in this phase | Existing scanner-report import does not imply strict inventory CPE conversion; no CPE 2.2 conversion |
+| nmap | Local XML direct service/osclass explicit CPE URI or formatted assertions; one source host per asset, typed uncertainty | No scanner execution, banner-to-CPE inference, address merging, installed-state proof or full Nmap/legacy URI conformance |
 
 SBOM CPE identity requires literal part/vendor/product/version, no target patterns;
 unspecified extra attributes may remain ANY/NA. CPE 2.2, malformed/patterned CPE,
@@ -405,12 +406,21 @@ Earlier valid-feed leaf-cap and million-row integrity-scan-budget refusals led
 to explicit finite fixes; no uninterrupted-success claim is made. No datasets
 are distributed and acceptance of these sources does not guarantee future feeds.
 
-A subsequent 25-annual-feed source verification covered 416321 input records,
-but the unified build stopped safely after 963.714s at the former 2048 CNA-row
-cap and published no database. A separate 2025/2026 census of 127657 records
-found three CVEs above that cap, with a maximum of 2749 rows. The cap is now
-4096. A full 25-feed build rerun remains pending; neither source verification
-nor the synthetic retention controls establish successful all-year indexing.
+A subsequent 25-annual-feed attempt stopped safely at the former 2048 CNA-row
+cap and published no database. After the reviewed 4096-row limit change, the
+2026-10-29 historical acceptance at source commit
+`d676fdd01edd47fbf7cb830bad1347e246352e7f` (public product-equivalent
+`54112f97f44392c23ad40365c7474e3b8c884ebc`) successfully indexed all 25 supplied
+official annual files, 2002..2026: **416321 input / 416321 stored / 0 duplicates**,
+18842 Rejected/without-applicability records and 224169 records with a
+metadata-or-semantic gap. This is historical indexing acceptance, not a fresh
+benchmark of the Nmap feature or complete inventory assessability. These are
+catalog records, never 416321 confirmed vulnerabilities on a network.
+
+The inventory evaluator still has independent work limits. Large annual-catalog
+audits can reach the 500000-predicate cap before every source host is examined;
+they remain partial with `unexamined_pairs=null`. No complete annual inventory
+coverage or safety clearance follows from the accepted indexing count.
 
 Actual-source applicability at accepted `5be2ea4` used the 29284-record combined
 catalog and six explicitly synthetic declared components/assets: 158 relevant
@@ -434,3 +444,107 @@ which is not the process-peak metric above. Its query batch is open/info/first+l
 get and up to two 20-row pages for one identity. A separate build cancels on its
 third cooperative check and verifies cleanup; this is a small cancellation probe,
 not an in-scan latency guarantee or the controller's separate million-row run.
+
+## Offline Nmap identities / 离线 Nmap 身份主张
+
+Select `nmap` explicitly in CLI or the catalog panel, then choose an existing
+local XML file and click **明确导入**. Opening/switching modes/tabs performs no IO
+or collection. No Nmap executable is required or launched. Direct service/cpe
+and osclass/cpe assertions are supported for a/o/h parts; script CPEs, hostnames,
+MACs, banners, command/path/prose and nested script output are ignored. Each
+source host remains its own asset; retain 1..16 unique canonical literal IPs
+when available. Addressless identities remain logical source assets, never
+automatically merged with collected devices. `complete_parts` stays empty.
+
+Bounds apply together: source XML ≤16 MiB, depth 64, 200000 elements, 4096 source
+hosts, 65536 port rows and 65536 combined service+osclass entries; attributes
+≤4096 characters, text ≤65536. Normalized schema1 inventory ≤16 MiB, depth 32,
+250000 nodes, 1024 retained assets and 8192 components. Overflow, no usable
+identity or cancellation refuses the whole import without truncation.
+
+CPE URI conversion is a finite reviewed profile: input/output ≤4096 characters,
+decoded field ≤1024 tokens; indexed folded decoded vendor/product literals each
+≤256 characters (oversized names become unsupported counts/gaps). Omitted URI
+fields become ANY, ordinary `-` becomes NA; explicit NIST printable punctuation
+percent mappings, `%01`/`%02` edge patterns and packed edition are supported.
+Literal `%2a`/`%3f` remain escaped literals; decode once, so `%2502` stays literal.
+Malformed escapes, unsupported percent encodings, controls, invalid parts,
+embedded/repeated-star patterns and malformed packing are refused. Language is
+limited to 2..3 ASCII letters with optional 2-letter/3-digit region. This is not
+full legacy URI, RFC5646 or NIST conformance certification. Original decoded
+version case survives formatted conversion; existing case-insensitive identity
+matching and catalog-source unsupported-criterion policy remain independent.
+
+Preview distinguishes `service`/`osclass`, `probed`/`table`/`unknown`, protocol,
+port/state, host status, confidence (source scale 0..10), accuracy (source 0..100),
+URI/formatted binding, typed metadata validity, source time/time basis and
+`presence=asserted|possible`. These are unverified scanner claims, never a local
+measurement or vulnerability probability. Asserted admission requires a valid
+probed/open/up application identity with address/port/protocol and supported
+literal attributes. OS/hardware, table/unknown, patterned, invalid or addressless
+evidence stays possible. Alternative OS fingerprints cannot jointly establish
+an AND environment; possible evidence cannot prove positive or negative version
+or environment facts. Unsupported/missing conditions remain unknown.
+
+Source SHA256 covers exact XML bytes. Source time prefers valid host end, then
+host start, then document start only when earlier fields are absent; supplied
+invalid/inverted host times remain null/unknown without falling back to now or
+file time. Document time stays separate. Missing completion or explicit source
+error sets partial; all imports retain unverified runtime/scope gaps.
+
+`input_entries=service_entries+osclass_entries`, including entries without CPE;
+`input_cpe_identifiers` counts direct assertions before filtering. Accepted typed
+equivalents deduplicate only within one source entry with original literal
+version agreement. Repeated rejected raw text counts separately as input and
+unsupported, never duplicate; existing SBOM counter rules above stay separate.
+`retained_components`, `unmapped_entries`, `unsupported_identifiers` and
+`duplicate_identifiers` retain their distinct units. `scanner_summary` exposes
+input/retained/unmapped hosts, service/osclass entry counts and source
+`scan_status=success|error|unknown`; no counter is confirmed vulnerability count.
+
+Select a component row and explicitly choose **明确设置所选组件版本排序**:
+`unknown` (default), `numeric`, `semver2` or `openssh-portable`. This independent
+worker-validated analysis edit changes only that component's scheme, never its
+IDs, original CPE/version spelling, addresses, metadata/digest/time/counts or
+possible presence. Ordering is an analyst choice, never inferred from a banner
+or vendor, and never confirms a hypothesis. It invalidates the old preview;
+run audit again. Removal preserves original source entry/CPE/scan-status counts,
+updates retained components and retained/unmapped hosts, and marks partial.
+Unretained hosts may include deliberate removals; removing the final component
+produces the existing explicit empty scope, which cannot audit as clean.
+Imported scope still requires an explicit new manual scope before adding
+unrelated declarations.
+
+The new **Nmap 合成演练** creates temporary invented XML and catalog records with
+two documentation-address hosts, a probed service and mutually exclusive OS
+hypotheses. It marks `report.synthetic=True` before audit even though component
+source is `nmap`. Existing selected DB/inventory and main report/case/triage stay
+unchanged until deliberate Apply; the earlier demos remain. Display preparation
+runs in shared workers: source preview ≤about 16 Ki characters, full audit text
+≤65536, ≤3 components per host/result, ≤160 characters per identity/version field;
+omissions are labeled and do not truncate stored inventory/results.
+
+Only validated audit reports can Apply/export; metadata/import/order actions
+cannot. Default shared HMAC covers all addresses, IDs, CPE/version and document
+digests while preserving report/case/CSV/HTML joins. Raw export requires an
+explicit choice; re-export cannot resurrect pseudonymized identities. Additive
+schema1 addresses/scanner/counter fields may be refused by older strict readers.
+Native Linux/RF validation, novice studies, universal coverage and market
+superiority are not established by synthetic Tk/CLI tests.
+
+Matching prepares an independently validated, owned inventory snapshot per asset
+for each audit. Its lazy parsed-component cache retains at most 256 entries and
+131072 attribute tokens across original and evaluation names; shared names count
+once. Capacity causes eviction or uncached evaluation, never dropped evidence.
+Possible scanner evidence uses an internal class-only evaluation view; original
+CPE/version spelling, ordering declarations and scanner metadata remain in the
+inventory and reports. CNA criteria are processed one at a time across components,
+without retaining a parsed criterion list. No prepared state survives a new audit
+or an inventory revision.
+
+Preparation, cache operations and matching consume the existing predicate budget.
+Reuse avoids repeated parsing, but predicate totals can increase for small inputs
+because preparation is now charged. The 500000-predicate, 50000-pair, 4096-result
+and 2 MiB result limits remain unchanged. Cancellation or work exhaustion can
+still produce partial output with null unexamined-pair counts. This does not
+establish complete annual-catalog assessment or a wall-time speedup.

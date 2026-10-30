@@ -16,14 +16,25 @@ IDENTIFICATIONS = ('probed', 'declared', 'imported', 'unknown')
 CONTEXT_COUNTERS = ('input_entries', 'input_cpe_identifiers', 'retained_components',
                     'unmapped_entries', 'unsupported_identifiers', 'duplicate_identifiers')
 IMPORT_GAPS = frozenset(('sbom-import-unverified', 'unsupported-cpe', 'unmapped-identifier',
-    'duplicate-identifier', 'runtime-state-unverified', 'input-partial', 'source-time-unknown'))
+    'duplicate-identifier', 'runtime-state-unverified', 'input-partial', 'source-time-unknown',
+    'nmap-import-unverified', 'nmap-scope-unknown', 'nmap-hypothesis', 'nmap-address-unknown',
+    'nmap-version-unknown', 'nmap-evidence-unknown'))
+PORT_STATES = ('open', 'closed', 'filtered', 'unfiltered', 'open|filtered', 'closed|filtered', 'unknown')
+SCANNER_ENUMS = dict(origin=('service', 'osclass'), method=('probed', 'table', 'unknown'),
+    protocol=('tcp', 'udp', 'sctp', 'unknown'), state=PORT_STATES,
+    host_status=('up', 'down', 'unknown'), binding=('uri', 'formatted'),
+    timestamp_origin=('host-end', 'host-start', 'document-start', 'unknown'),
+    presence=('asserted', 'possible'))
+SCANNER_INTS = dict(confidence=(0, 10, True), accuracy=(0, 100, True), port=(1, 65535, True),
+    host_ordinal=(0, 4095, False), entry_ordinal=(0, 199999, False), cpe_ordinal=(0, 199999, False))
+SCANNER_COUNTERS = ('input_hosts', 'retained_hosts', 'unmapped_hosts', 'service_entries', 'osclass_entries')
 
 
 def bad_inventory():
     raise ValueError('Invalid typed inventory; use bounded inventory schema_version=1.')
 
 
-def bounded_json(value, *, max_depth=32, max_nodes=250000, allow_numbers=False):
+def _measure_json(value, *, max_depth=32, max_nodes=250000, allow_numbers=False):
     """Bound the exact default-separator, ensure_ascii=False JSON byte size.
 
     Count escape expansion and UTF-8 before serializing/copying the object. Only
@@ -80,6 +91,76 @@ def bounded_json(value, *, max_depth=32, max_nodes=250000, allow_numbers=False):
             size += 4 if item is None or item is True else 5 if item is False else len(str(item))
         if size > MAX_BYTES:
             bad_inventory()
+    return nodes, size
+
+
+def bounded_json(value, *, max_depth=32, max_nodes=250000, allow_numbers=False):
+    _measure_json(value, max_depth=max_depth, max_nodes=max_nodes, allow_numbers=allow_numbers)
+
+
+def _cancel(cancel):
+    try:
+        stopped = cancel is not None and (cancel() if callable(cancel) else cancel.is_set())
+    except Exception:
+        raise ValueError('Inventory cancellation callback failed.') from None
+    if stopped:
+        raise ValueError('Inventory import cancelled; previous inventory preserved.')
+
+
+def validate_addresses(asset, *, projected=False):
+    """Check the additive address list without interpreting projected identities."""
+    if 'addresses' not in asset:
+        return
+    values = asset['addresses']
+    if not isinstance(values, list) or not 1 <= len(values) <= 16:
+        bad_inventory()
+    for value in values:
+        if not isinstance(value, str):
+            bad_inventory()
+        if projected:
+            if not re.fullmatch('id-[0-9a-f]{24}', value):
+                bad_inventory()
+        else:
+            try:
+                if '%' in value or str(ipaddress.ip_address(value)) != value:
+                    bad_inventory()
+            except ValueError:
+                bad_inventory()
+    if len(set(values)) != len(values) or asset.get('address') is not None and asset['address'] not in values:
+        bad_inventory()
+
+
+def scanner_presence(scanner, name, has_address):
+    asserted = (scanner['origin'] == 'service' and scanner['method'] == 'probed'
+        and scanner['state'] == 'open' and scanner['host_status'] == 'up'
+        and scanner['protocol'] != 'unknown' and scanner['port'] is not None
+        and scanner['metadata_valid'] and has_address
+        and name.field('part').kind == 'literal' and name.field('part').text == 'a'
+        and all(a.kind not in ('pattern', 'unsupported') for a in name.attributes))
+    return 'asserted' if asserted else 'possible'
+
+
+def validate_scanner(row, asset, *, projected=False):
+    if 'scanner' not in row:
+        return
+    value = row['scanner']
+    if (row.get('source') != 'nmap' or 'cpe' not in row or not isinstance(value, dict)
+            or set(value) != set(SCANNER_ENUMS) | set(SCANNER_INTS) | {'metadata_valid'}):
+        bad_inventory()
+    for key, allowed in SCANNER_ENUMS.items():
+        if not isinstance(value[key], str) or value[key] not in allowed:
+            bad_inventory()
+    for key, (low, high, nullable) in SCANNER_INTS.items():
+        item = value[key]
+        if item is None and nullable:
+            continue
+        if type(item) is not int or not low <= item <= high:
+            bad_inventory()
+    if type(value['metadata_valid']) is not bool:
+        bad_inventory()
+    if not projected and value['presence'] != scanner_presence(value, parse_cpe(row['cpe']),
+            bool(asset.get('address') or asset.get('addresses'))):
+        bad_inventory()
 
 
 def text(value, limit=256):
@@ -104,10 +185,23 @@ def digest(value, *, projected=False):
         bad_inventory()
 
 
-def validate_import_context(value, count, *, projected=False):
-    if (not isinstance(value, dict) or set(value) != set(CONTEXT_COUNTERS) | {
+def validate_import_context(value, count, *, projected=False, asset_count=None):
+    if (not isinstance(value, dict) or set(value) - {'scanner_summary'} != set(CONTEXT_COUNTERS) | {
             'format', 'source_sha256', 'document_observed_at', 'partial', 'gaps'}):
         bad_inventory()
+    if 'scanner_summary' in value:
+        summary = value['scanner_summary']
+        if (value['format'] != 'nmap' or not isinstance(summary, dict)
+                or set(summary) != set(SCANNER_COUNTERS) | {'scan_status'}):
+            bad_inventory()
+        for key in SCANNER_COUNTERS:
+            if type(summary[key]) is not int or not 0 <= summary[key] <= 250000:
+                bad_inventory()
+        if (not isinstance(summary['scan_status'], str) or summary['scan_status'] not in ('success', 'error', 'unknown')
+                or summary['input_hosts'] - summary['retained_hosts'] != summary['unmapped_hosts']
+                or asset_count is not None and summary['retained_hosts'] != asset_count
+                or value['input_entries'] != summary['service_entries'] + summary['osclass_entries']):
+            bad_inventory()
     if value['format'] not in ('native', 'cyclonedx', 'spdx', 'nmap') or type(value['partial']) is not bool:
         bad_inventory()
     for key in CONTEXT_COUNTERS:
@@ -135,7 +229,7 @@ def validate_inventory(value):
     result = {'schema_version': 1, 'assets': []}
     provenance = {'source', 'identification', 'observed_at', 'source_sha256', 'version_scheme'}
     for asset in assets:
-        if not isinstance(asset, dict) or set(asset) - {'id', 'components', 'complete_parts', 'address'}:
+        if not isinstance(asset, dict) or set(asset) - {'id', 'components', 'complete_parts', 'address', 'addresses'}:
             bad_inventory()
         identifier = text(asset.get('id'))
         if identifier in asset_ids:
@@ -159,6 +253,9 @@ def validate_inventory(value):
         normalized = dict(id=identifier, complete_parts=list(parts), components=[])
         if 'address' in asset:
             normalized['address'] = address
+        validate_addresses(dict(asset, address=address))
+        if 'addresses' in asset:
+            normalized['addresses'] = list(asset['addresses'])
         for row in rows:
             count += 1
             if count > 8192 or not isinstance(row, dict):
@@ -168,7 +265,7 @@ def validate_inventory(value):
                 bad_inventory()
             component_ids.add(key)
             if 'cpe' in row:
-                if set(row) - ({'id', 'cpe'} | provenance):
+                if set(row) - ({'id', 'cpe', 'scanner'} | provenance):
                     bad_inventory()
                 name = parse_cpe(row['cpe'])
                 if name.field('part').kind != 'literal':
@@ -190,10 +287,13 @@ def validate_inventory(value):
                 bad_inventory()
             timestamp(component['observed_at'])
             digest(component['source_sha256'])
+            validate_scanner(row, normalized)
+            if 'scanner' in row:
+                component['scanner'] = dict(row['scanner'])
             normalized['components'].append(component)
         result['assets'].append(normalized)
     if 'import_context' in value:
-        validate_import_context(value['import_context'], count)
+        validate_import_context(value['import_context'], count, asset_count=len(assets))
         result['import_context'] = copy.deepcopy(value['import_context'])
     return result
 

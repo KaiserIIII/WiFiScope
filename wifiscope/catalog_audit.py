@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import json
 import time
 
-from .applicability import MatchBudget, WorkLimit, evaluate_cve
+from .applicability import MatchBudget, WorkLimit, _evaluate_prepared, _prepare_asset
 from .case_validation import validate_report
 from .cpe_names import parse_cpe
 from .inventory import bounded_json, validate_inventory
@@ -99,6 +99,7 @@ def audit_catalog(report, inventory, index, *, cancel=None, progress=None):
         for asset in normalized['assets']:
             if cancelled():
                 raise InterruptedError
+            prepared = _prepare_asset(asset, budget=budget)
             identities = _identities(asset, cancelled)
             after = None
             while True:
@@ -115,7 +116,7 @@ def audit_catalog(report, inventory, index, *, cancel=None, progress=None):
                             or record['cve'] not in seen and len(seen) >= MAX_RECORDS):
                         raise WorkLimit('Catalog result/pair budget reached.')
                     seen.add(record['cve'])
-                    evaluated = evaluate_cve(record, asset, budget=budget)
+                    evaluated = _evaluate_prepared(record, prepared, budget=budget)
                     outcome = evaluated['applicability']
                     if outcome == 'false':
                         summary['evaluated_pairs'] += 1

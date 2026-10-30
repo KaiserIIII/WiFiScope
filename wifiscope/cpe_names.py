@@ -106,21 +106,40 @@ def compare_attribute(source, target, charge):
     return 'true' if source.text == target.text else 'false'
 
 
-def compare_cpe(criteria, observed, *, budget=None):
-    source = parse_cpe(criteria) if isinstance(criteria, str) else criteria
-    target = parse_cpe(observed) if isinstance(observed, str) else observed
-    if not isinstance(source, CPEName) or not isinstance(target, CPEName):
+def _validate_name(name):
+    """Validate every rich attribute before any directional comparison."""
+    if not isinstance(name, CPEName):
         raise ValueError('CPE comparison requires typed formatted names.')
-    if (not isinstance(source.attributes, tuple) or not isinstance(target.attributes, tuple)
-            or len(source.attributes) != 11 or len(target.attributes) != 11
+    if (not isinstance(name.attributes, tuple) or len(name.attributes) != 11
             or any(not isinstance(a, Attribute) or not isinstance(a.text, str)
                    or not isinstance(a.tokens, tuple) or len(a.text) > 2048 or len(a.tokens) > 1024
                    or (a.original_text is not None and (not isinstance(a.original_text, str) or len(a.original_text) > 1024))
                    or a.kind not in ('any', 'na', 'literal', 'pattern', 'unsupported')
                    or any(not isinstance(t, tuple) or len(t) != 2 or not isinstance(t[0], str)
                           or not 1 <= len(t[0]) <= 3 or type(t[1]) is not bool for t in a.tokens)
-                   for a in source.attributes + target.attributes)):
+                   for a in name.attributes)):
         raise ValueError('Invalid typed CPE attributes.')
+
+
+def _compare_valid_names(source, target, charge):
+    """Compare parsed/validated internal names, charging only performed work."""
+    result = 'true'
+    for a, b in zip(source.attributes, target.attributes):
+        value = compare_attribute(a, b, charge)
+        if value == 'false':
+            return 'false'
+        if value == 'unknown':
+            result = 'unknown'
+    return result
+
+
+def compare_cpe(criteria, observed, *, budget=None):
+    source = parse_cpe(criteria) if isinstance(criteria, str) else criteria
+    target = parse_cpe(observed) if isinstance(observed, str) else observed
+    if not isinstance(source, CPEName) or not isinstance(target, CPEName):
+        raise ValueError('CPE comparison requires typed formatted names.')
+    _validate_name(source)
+    _validate_name(target)
     work = 0
     def charge():
         nonlocal work
@@ -130,7 +149,8 @@ def compare_cpe(criteria, observed, *, budget=None):
         elif work > 131072:
             raise OverflowError
     try:
-        values = [compare_attribute(a, b, charge) for a, b in zip(source.attributes, target.attributes)]
+        return _compare_valid_names(source, target, charge)
     except OverflowError:
+        if budget is not None:
+            raise
         return 'unknown'
-    return 'false' if 'false' in values else 'unknown' if 'unknown' in values else 'true'

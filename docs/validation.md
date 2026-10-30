@@ -114,3 +114,25 @@ change. Native visual acceptance, fresh Python 3.13 and hosted CI belong to the
 final integration gates; no result is claimed here before that gate is observed.
 All-CVE coverage, authenticated detection, complete SBOM schema validation,
 installation proof, novice usability and product superiority remain unproved.
+
+## Nmap identity desktop and CLI verification scope
+
+`python -m unittest tests.test_nmap_catalog_gui tests.test_catalog_gui tests.test_inventory_import tests.test_security_tools_gui`
+uses invented XML/records and local temporary catalogs. Real project Tk buttons
+and queues cover both modes, explicit file/format import, bounded worker-prepared
+host/address/provenance display, unknown environmental associations, deliberate
+component ordering (including uppercase SemVer URI spelling), refusal without
+mutation, removal source counts/retained hosts, busy/cancel/stale/closed-owner
+delivery, metadata no-Apply and explicit audit Apply/default export. Tiny-catalog
+CLI controls check `--inventory-format nmap`, default shared HMAC, deliberate raw
+output, controlled bundle receipt and complete/partial/refusal exit codes.
+The new walkthrough marks the report synthetic before audit; no scanner runs.
+
+These are widget/queue and synthetic CLI checks, not native human-input or novice
+study evidence. Historical 416321-record acceptance at source d676fdd / public
+54112f97 is [index evidence](catalogs.md), separate from Nmap inventory auditing;
+the latter may reach a finite work cap and must retain partial/null unexamined
+counts. No current-feature full-catalog benchmark is claimed. Independent native
+observation, fresh Python 3.12/3.13, coverage, public-only scan and exact hosted CI
+remain separate final gates until actual results are recorded. Linux native/RF,
+installed-state/exploitability and market-superiority claims remain unproved.

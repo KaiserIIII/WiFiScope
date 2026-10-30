@@ -13,7 +13,9 @@ MAX_ROWS = 65536
 MAX_MODEL_ITEMS = 200000
 
 
-def _xml(data):
+def _xml(data, cancel=None):
+    from .inventory import _cancel
+    _cancel(cancel)
     if not isinstance(data, bytes) or len(data) > MAX_BYTES or b'\x00' in data:
         raise ValueError('XML must be UTF-8 bytes, at most 16 MiB, without NULs.')
     try:
@@ -35,6 +37,7 @@ def _xml(data):
     counts = dict(elements=0, assets=0, rows=0)
 
     def start(name, attrs):
+        _cancel(cancel)
         counts['elements'] += 1
         counts['assets'] += bool(name == 'host' and stack and stack[-1][0] == 'nmaprun')
         counts['rows'] += name == 'result' or bool(name == 'port' and stack and stack[-1][0] == 'ports')
@@ -45,19 +48,29 @@ def _xml(data):
         stack.append([name, 0])
 
     def chars(value):
+        _cancel(cancel)
         if stack:
             stack[-1][1] += len(value)
             if stack[-1][1] > 65536:
                 raise ValueError('XML text node exceeds 65536 characters.')
 
     parser.StartElementHandler = start
-    parser.EndElementHandler = lambda name: stack.pop()
+    def end(name):
+        _cancel(cancel)
+        stack.pop()
+    parser.EndElementHandler = end
     parser.CharacterDataHandler = chars
     parser.ExternalEntityRefHandler = lambda *args: 0
     parser.EntityDeclHandler = lambda *args: (_ for _ in ()).throw(ValueError('Entities are forbidden.'))
     try:
-        parser.Parse(text, True)
-        return ET.fromstring(text)
+        for offset in range(0, len(text), 65536):
+            _cancel(cancel)
+            parser.Parse(text[offset:offset+65536], False)
+        parser.Parse('', True)
+        _cancel(cancel)
+        result = ET.fromstring(text)
+        _cancel(cancel)
+        return result
     except (expat.ExpatError, ET.ParseError):
         raise ValueError('Malformed or unsupported XML.') from None
 

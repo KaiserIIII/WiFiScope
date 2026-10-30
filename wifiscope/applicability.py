@@ -1,12 +1,15 @@
 """Pure bounded three-valued CPE/CNA applicability; no installed-state inference."""
 import re
+from collections import OrderedDict
 from functools import cmp_to_key
-from .cpe_names import compare_cpe, parse_cpe
+from .cpe_names import Attribute, CPEName, _compare_valid_names, _validate_name, parse_cpe
 from .inventory import bounded_json, validate_inventory
 
 # Provider spelling compatibility only; source declarations remain unchanged.
 CNA_SCHEMES = {'numeric': 'numeric', 'semver': 'semver2', 'semver2': 'semver2',
                'openssh-portable': 'openssh-portable'}
+_MAX_PREPARED_ENTRIES = 256
+_MAX_PREPARED_TOKENS = 131072
 
 
 def truth_and(values):
@@ -89,12 +92,98 @@ class MatchBudget:
             raise InterruptedError('Catalog audit cancelled.')
 
 
-def _range_leaf(match, component, budget):
+def _possible(component):
+    return component.get('scanner', {}).get('presence') == 'possible'
+
+
+def _class_key(name):
+    return tuple(name.field(k).text for k in ('part', 'vendor', 'product'))
+
+
+class _PreparedAsset:
+    """Owned, independently validated evidence for one evaluation lifecycle.
+
+    Only raw normalized inventory is kept outside the bounded lazy rich-name
+    cache. Class keys preserve the old folded-text fallback, including patterns.
+    This private Python object is never an input or export schema.
+    """
+    __slots__ = ('_asset', '_components', '_cpe_components', '_classes', '_cache', '_cache_tokens')
+
+    def __init__(self, asset, *, budget):
+        budget.charge()
+        bounded_json(asset)
+        # Account for the snapshot traversal before validation/copying. The
+        # bounded JSON preflight also prevents cyclic/unbounded traversal here.
+        pending = [asset]
+        while pending:
+            budget.charge()
+            item = pending.pop()
+            if isinstance(item, dict):
+                pending.extend(v for pair in item.items() for v in pair)
+            elif isinstance(item, list):
+                pending.extend(item)
+        self._asset = validate_inventory(dict(schema_version=1, assets=[asset]))['assets'][0]
+        self._components, cpes, self._classes = {}, [], set()
+        self._cache, self._cache_tokens = OrderedDict(), 0
+        for component in self._asset['components']:
+            budget.charge()
+            self._components[component['id']] = component
+            if 'cpe' in component:
+                # Transient class-only parse: do not eagerly retain rich names
+                # for inventories that can contain thousands of components.
+                # Rich-name validation belongs to the lazy evidence miss:
+                # parse-valid evidence may remain unused by this record.
+                name = parse_cpe(component['cpe'])
+                self._classes.add(_class_key(name))
+                cpes.append(component)
+        self._cpe_components = tuple(cpes)
+
+    def _evidence(self, identifier, budget):
+        budget.charge()  # lookup, including hits
+        cached = self._cache.get(identifier)
+        if cached is not None:
+            self._cache.move_to_end(identifier)
+            return cached[:2]
+        budget.charge()  # actual miss parse and full rich-name validation
+        component = self._components[identifier]
+        original = parse_cpe(component['cpe'])
+        _validate_name(original)
+        evaluated = original
+        if _possible(component):
+            attributes = []
+            for i, attribute in enumerate(original.attributes):
+                budget.charge()
+                attributes.append(attribute if i < 3 else Attribute('any', '*', (('*', False),), '*'))
+            evaluated = CPEName(tuple(attributes))
+            _validate_name(evaluated)
+        # Shared original/evaluation names count only once. Different possible
+        # views conservatively include both names' attribute-token counts.
+        tokens = sum(len(a.tokens) for a in original.attributes)
+        if evaluated is not original:
+            tokens += sum(len(a.tokens) for a in evaluated.attributes)
+        if tokens <= _MAX_PREPARED_TOKENS:
+            while self._cache and (len(self._cache) >= _MAX_PREPARED_ENTRIES
+                                   or self._cache_tokens + tokens > _MAX_PREPARED_TOKENS):
+                budget.charge()
+                _, evicted = self._cache.popitem(last=False)
+                self._cache_tokens -= evicted[2]
+            budget.charge()  # retention; a failure leaves this miss unretained
+            self._cache[identifier] = (original, evaluated, tokens)
+            self._cache_tokens += tokens
+        return original, evaluated
+
+
+def _prepare_asset(asset, *, budget):
+    return _PreparedAsset(asset, budget=budget)
+
+
+def _range_leaf(match, source, component, prepared, budget):
     budget.charge()
-    value = compare_cpe(match['criteria'], component['cpe'], budget=budget.charge)
+    _, name = prepared._evidence(component['id'], budget)
+    value = _compare_valid_names(source, name, budget.charge)
     if value == 'false':
         return value
-    observed = parse_cpe(component['cpe']).field('version')
+    observed = name.field('version')
     for key, sign in [('versionStartIncluding', 'ge'), ('versionStartExcluding', 'gt'),
                       ('versionEndIncluding', 'le'), ('versionEndExcluding', 'lt')]:
         if key not in match:
@@ -103,10 +192,10 @@ def _range_leaf(match, component, budget):
         order = compare_versions(observed.original_text, match[key], component.get('version_scheme', 'unknown')) if observed.kind == 'literal' else None
         value = truth_and([value, 'unknown' if order is None else 'true' if
             {'ge': order >= 0, 'gt': order > 0, 'le': order <= 0, 'lt': order < 0}[sign] else 'false'])
-    return value
+    return 'unknown' if _possible(component) else value
 
 
-def _leaf(match, asset, polarity, budget):
+def _leaf(match, prepared, polarity, budget):
     budget.charge()
     if match.get('unsupported') or 'criteria' not in match:
         return 'unknown', set(), 'unknown'
@@ -116,12 +205,17 @@ def _leaf(match, asset, polarity, budget):
         # Retained lexical/legacy criteria need not fit the strict matcher.
         # Only parsing is contained; budget/cancel/callback errors propagate.
         return 'unknown', set(), 'unknown'
+    # Preserve the old no-CPE-target boundary: parsing is still contained, but
+    # rich-name comparison validation is needed only when comparison occurs.
+    if prepared._cpe_components:
+        _validate_name(source)
+    asset = prepared._asset
     values, ids = [], set()
     for component in asset['components']:
         budget.charge()
         if 'cpe' not in component:
             continue
-        value = _range_leaf(match, component, budget)
+        value = _range_leaf(match, source, component, prepared, budget)
         values.append(value)
         if value != 'false':
             ids.add(component['id'])
@@ -129,9 +223,8 @@ def _leaf(match, asset, polarity, budget):
     if value == 'false' and source.field('part').text not in asset.get('complete_parts', []):
         # A literal same-identity observed version disproves this leaf; unrelated
         # components do not establish absence in an open-world inventory.
-        identity = [c for c in asset['components'] if 'cpe' in c and all(
-            parse_cpe(c['cpe']).field(k).text == source.field(k).text for k in ('part', 'vendor', 'product'))]
-        if not identity:
+        budget.charge()
+        if _class_key(source) not in prepared._classes:
             value = 'unknown'
     if not polarity:
         value = truth_not(value)
@@ -139,12 +232,12 @@ def _leaf(match, asset, polarity, budget):
     return value, ids, witness
 
 
-def _node(node, asset, polarity, budget):
+def _node(node, prepared, polarity, budget):
     budget.charge()
     negated = node.get('negate', False)
     effective = polarity != negated
-    children = [_leaf(m, asset, effective, budget) for m in node.get('cpeMatch', [])]
-    children += [_node(n, asset, effective, budget) for n in node.get('nodes', [])]
+    children = [_leaf(m, prepared, effective, budget) for m in node.get('cpeMatch', [])]
+    children += [_node(n, prepared, effective, budget) for n in node.get('nodes', [])]
     op = node.get('operator', 'OR')
     # Evaluate in negation normal form. Witnesses have their own three-valued
     # satisfying-path state; a merely possible OR witness cannot authorize a
@@ -224,29 +317,21 @@ def _cna_version(declaration, version, scheme, budget):
     return status
 
 
-def _cna(row, component, budget):
+def _cna(row, component, prepared, identity, budget):
     budget.charge()
     if 'cpe' in component:
         if not row.get('cpes'):
             return None
         if row.get('unsupported') or row.get('context'):
             return 'unknown'
-        identities = []
-        for cpe in row['cpes']:
-            budget.charge()
-            try:
-                criteria = parse_cpe(cpe)
-            except ValueError:
-                # Task1 retains unsupported identifier evidence, including CPE
-                # 2.2. Contain only strict parsing here; never catch matching
-                # WorkLimit/cancellation/callback failures or guess conversion.
-                identities.append('unknown')
-                continue
-            identities.append(compare_cpe(criteria, component['cpe'], budget=budget.charge))
-        identity = truth_or(identities)
         if identity == 'false':
             return None
-        version = parse_cpe(component['cpe']).field('version')
+        # Unknown identity cannot use version evidence. Parseable criteria have
+        # already validated originals during _cna_identities comparisons.
+        if identity == 'unknown' or _possible(component):
+            return 'unknown'
+        original, _ = prepared._evidence(component['id'], budget)
+        version = original.field('version')
         version = version.original_text if version.kind == 'literal' else None
     else:
         if (row.get('vendor'), row.get('product')) != (component['vendor'], component['product']):
@@ -262,6 +347,33 @@ def _cna(row, component, budget):
     return {'affected': 'true', 'unaffected': 'false'}.get(status, 'unknown')
 
 
+def _cna_identities(row, prepared, budget):
+    """Stream one criterion at a time; retain only per-component truth values."""
+    identities = {}
+    if (not prepared._cpe_components or not row.get('cpes')
+            or row.get('unsupported') or row.get('context')):
+        return identities
+    for cpe in row['cpes']:
+        budget.charge()
+        try:
+            criteria = parse_cpe(cpe)
+        except ValueError:
+            # Legacy/lexical identifiers remain unknown, without containing
+            # rich validation or work/cancellation/callback exceptions.
+            criteria = None
+        if criteria is not None:
+            _validate_name(criteria)
+        for component in prepared._cpe_components:
+            budget.charge()
+            value = 'unknown'
+            if criteria is not None:
+                _, name = prepared._evidence(component['id'], budget)
+                value = _compare_valid_names(criteria, name, budget.charge)
+            key = component['id']
+            identities[key] = truth_or([identities.get(key, 'false'), value])
+    return identities
+
+
 def evaluate_cve(record, asset, *, budget=None):
     """Return applicability, sorted component_ids, model and controlled reasons.
 
@@ -271,11 +383,20 @@ def evaluate_cve(record, asset, *, budget=None):
     bounded_json(record, allow_numbers=True)
     if not isinstance(record, dict) or not isinstance(asset, dict):
         raise ValueError('Applicability requires a typed record and inventory asset.')
-    asset = validate_inventory(dict(schema_version=1, assets=[asset]))['assets'][0]
     budget = budget if budget is not None else MatchBudget()
+    prepared = _prepare_asset(asset, budget=budget)
+    return _evaluate_prepared(record, prepared, budget=budget)
+
+
+def _evaluate_prepared(record, prepared, *, budget):
+    """Internal evaluator; only the owned Python context crosses this boundary."""
+    bounded_json(record, allow_numbers=True)
+    if not isinstance(record, dict) or type(prepared) is not _PreparedAsset:
+        raise ValueError('Applicability requires a typed record and prepared asset.')
+    asset = prepared._asset
     models, ids, reasons = {}, set(), set()
     if record.get('configurations'):
-        rows = [_node(n, asset, True, budget) for n in record['configurations']]
+        rows = [_node(n, prepared, True, budget) for n in record['configurations']]
         value = truth_or(v for v, _, _ in rows)
         witnesses = [r for r in rows if r[0] != 'false' and r[2] != 'false']
         if value == 'true' and truth_or(r[2] for r in rows) != 'true':
@@ -286,8 +407,9 @@ def evaluate_cve(record, asset, *, budget=None):
     cna_rows = {}
     for container in record.get('affected', []):
         for row in container.get('affectedData', []):
+            identities = _cna_identities(row, prepared, budget)
             for component in asset['components']:
-                value = _cna(row, component, budget)
+                value = _cna(row, component, prepared, identities.get(component['id']), budget)
                 if value is not None:
                     cna_rows.setdefault(component['id'], []).append(value)
                     ids.add(component['id'])

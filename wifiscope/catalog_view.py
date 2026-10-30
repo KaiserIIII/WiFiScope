@@ -121,6 +121,39 @@ def catalog_demo(cancel=None, progress=None):
     return report
 
 
+def nmap_catalog_demo(cancel=None, progress=None):
+    """Invented scanner assertions, never scanner execution or real discovery."""
+    app = 'cpe:2.3:a:example_vendor:example_app:1.0.0:*:*:*:*:*:*:*'
+    os_one = 'cpe:2.3:o:example_os:alternative_one:1:*:*:*:*:*:*:*'
+    os_two = 'cpe:2.3:o:example_os:alternative_two:2:*:*:*:*:*:*:*'
+    matches = [[dict(criteria=app, vulnerable=True)],
+               [dict(criteria=app, vulnerable=True), dict(criteria=os_one, vulnerable=False)],
+               [dict(criteria=os_one, vulnerable=True), dict(criteria=os_two, vulnerable=False)]]
+    rows = [dict(cve=dict(id=f'CVE-2026-{92001+i}', vulnStatus='Analyzed', configurations=[dict(
+        nodes=[dict(operator='AND', cpeMatch=values)])])) for i, values in enumerate(matches)]
+    xml = '''<nmaprun start="1700000000"><host endtime="1700000002"><status state="up"/>
+<address addr="192.0.2.10" addrtype="ipv4"/><address addr="2001:db8::10" addrtype="ipv6"/>
+<ports><port protocol="tcp" portid="443"><state state="open"/><service method="probed" conf="10">
+<cpe>cpe:/a:example_vendor:example_app:1.0.0</cpe></service></port></ports>
+<os><osmatch><osclass accuracy="98"><cpe>cpe:/o:example_os:alternative_one:1</cpe></osclass>
+<osclass accuracy="97"><cpe>cpe:/o:example_os:alternative_two:2</cpe></osclass></osmatch></os></host>
+<host><status state="up"/><address addr="198.51.100.20" addrtype="ipv4"/>
+<ports><port protocol="tcp" portid="443"><state state="open"/><service method="table" conf="3">
+<cpe>cpe:/a:example_vendor:example_app:1.0.0</cpe></service></port></ports></host>
+<runstats><finished exit="success"/></runstats></nmaprun>'''
+    with tempfile.TemporaryDirectory(prefix='wifiscope-synthetic-nmap-') as directory:
+        path = Path(directory)
+        source, db, evidence = path/'invented.json', path/'catalog.sqlite', path/'invented.xml'
+        source.write_text(json.dumps(dict(format='NVD_CVE', version='2.0', totalResults=3,
+            startIndex=0, resultsPerPage=3, vulnerabilities=rows)), encoding='utf8')
+        evidence.write_text(xml, encoding='utf8')
+        inventory = import_inventory(evidence, format='nmap', cancel=cancel)
+        build_catalog([source], db, cancel=cancel)
+        with CatalogIndex(db) as index:
+            return audit_catalog(dict(schema_version=1, synthetic=True), inventory, index,
+                                 cancel=cancel, progress=progress)
+
+
 PREVIEW_MAX_CHARS = 65536
 PREVIEW_COMPONENTS = 3
 PREVIEW_FIELD_CHARS = 160
@@ -130,6 +163,16 @@ def _preview_field(value):
     if len(value) <= PREVIEW_FIELD_CHARS:
         return value
     return value[:PREVIEW_FIELD_CHARS]+'…[显示截断]'
+
+
+def _preview_identifier(value):
+    """Display only; complete identifiers remain the report's join keys."""
+    return value if len(value) <= 32 else value[:16]+'…[缩略]'+value[-8:]
+
+
+def _asset_preview(asset, ordinal):
+    addresses = ', '.join(asset.get('addresses', [])) or asset.get('address') or '未知'
+    return f"主机 {ordinal} · 地址 {addresses} · 资产 {_preview_identifier(asset['id'])}"
 
 
 def _component_preview(component):
@@ -160,9 +203,48 @@ def _component_preview(component):
     else:
         identity = 'CNA '+_preview_field(component['vendor'])+' / '+_preview_field(component['product'])
         version = _preview_field(component['version']) if component['version'] is not None else '未知（null）'
-    return (f"  组件 {component['id']} · {identity} · 版本 {version} · 排序 {component['version_scheme']}"
+    result = (f"  {identity} · 版本 {version}"
             f" · 来源 {component['source']} · 识别 {component['identification']}"
             f" · 来源时间 {component['observed_at'] or '未知（null）'}")
+    scanner = component.get('scanner')
+    if scanner:
+        result += f" · 扫描器声明 {scanner['origin']} / {scanner['method']} · presence {scanner['presence']}"
+    result += f" · 排序 {component['version_scheme']} · 组件 {_preview_identifier(component['id'])}"
+    if scanner:
+        result += (f"\n    协议 {scanner['protocol']} / 端口 {scanner['port']} / 状态 {scanner['state']}"
+                   f" · 主机 {scanner['host_status']} · 置信度 {scanner['confidence']}（0..10 来源尺度）"
+                   f" · 准确度 {scanner['accuracy']}（来源值，非漏洞概率）"
+                   f" · 时间依据 {scanner['timestamp_origin']} · 元数据有效 {scanner['metadata_valid']}"
+                   f" · 原始绑定 {scanner['binding']} · URI 转换仅有限 profile；原始版本大小写保留")
+    return result
+
+
+def inventory_preview(inventory):
+    """Bounded worker-prepared host/presence display; data stays complete."""
+    lines = ['本地身份来源预览 · 服务探测声明不等于已安装；OS/table 是可能假设，非确认。',
+             'asserted = 来源探测主张；possible = 可能，不能证明存在或不存在。',
+             '版本排序由分析者明确选择，默认 unknown；不会确认假设。置信度/准确度不是漏洞概率。',
+             '标识符/SHA256 的 …[缩略] 仅用于显示；完整值保留在原始标识符报告导出中。主机编号仅对应本清单。']
+    context = inventory.get('import_context')
+    if context:
+        lines.append(f"文档格式 {context['format']}"
+                     f" · 文档来源时间 {context['document_observed_at'] or '未知（null）'}"
+                     f" · 输入部分状态 {context['partial']} · SHA256 {_preview_identifier(context['source_sha256'])}")
+    used, shown = sum(map(len, lines)), 0
+    for ordinal, asset in enumerate(inventory['assets'], 1):
+        chunk = [_asset_preview(asset, ordinal)]
+        chunk.extend(_component_preview(row) for row in asset['components'][:PREVIEW_COMPONENTS])
+        if len(asset['components']) > PREVIEW_COMPONENTS:
+            chunk.append(f"组件显示 {PREVIEW_COMPONENTS} / {len(asset['components'])}；显示截断，完整清单保留。")
+        rendered = '\n'.join(chunk)
+        if used+len(rendered)+1 > 16000:
+            break
+        lines.append(rendered)
+        shown += 1
+        used += len(rendered)+1
+    if shown < len(inventory['assets']):
+        lines.append(f"资产显示 {shown} / {len(inventory['assets'])}；显示截断，完整清单保留。")
+    return '\n'.join(lines)
 
 
 def audit_preview(report):
@@ -174,13 +256,16 @@ def audit_preview(report):
     """
     audit, summary = report['catalog_audit'], report['catalog_audit']['summary']
     assets = {asset['id']: asset for asset in audit['inventory']['assets']}
+    ordinals = {key: ordinal for ordinal, key in enumerate(assets, 1)}
     components = {row['id']: row for asset in assets.values() for row in asset['components']}
     lines = ['合成演练 · 非实测' if report.get('synthetic') else '声明/导入身份的本地审核预览',
         f"状态 {audit['status']}；目录收录 {audit['catalog']['records']}；资产 {summary['assets']} / 组件 {summary['components']}",
-        f"已评估资产-CVE 对 {summary['evaluated_pairs']}；模型匹配 {summary['true_pairs']}；未知条件 {summary['unknown_pairs']}；不匹配 {summary['not_matched_pairs']}；未评估 {summary['unexamined_pairs']}",
+        f"已评估资产-CVE 对 {summary['evaluated_pairs']}；模型匹配 {summary['true_pairs']}；未知条件 {summary['unknown_pairs']}；不匹配 {summary['not_matched_pairs']}；未评估 {summary['unexamined_pairs'] if summary['unexamined_pairs'] is not None else '未知（null）'}",
         '模型匹配仍需核查安装、配置、环境和回补；未知项不是正面漏洞。无匹配不是安全证明。',
         '下一步：先确认身份/声明版本，再补充环境/供应商证据，修复后在相同范围复测。',
         '下列身份来自本预览自己的清单；每项最多显示 3 个组件、身份/版本字段最多 160 字符。']
+    if any('scanner' in row for row in components.values()):
+        lines.append(inventory_preview(audit['inventory']))
     # Reserve bounded footer space; each outcome receives its own allowance so
     # a large true group cannot hide every unknown row (or the reverse).
     group_limit = (PREVIEW_MAX_CHARS-len('\n'.join(lines))-1024)//2
@@ -191,7 +276,8 @@ def audit_preview(report):
         for row in audit['results']:
             if row['applicability'] != outcome:
                 continue
-            chunk = [f"{row['cve']} · 资产 {row['asset_id']} · 适用性 {outcome} · {row['model']} · {row['status']}",
+            host = _asset_preview(assets[row['asset_id']], ordinals[row['asset_id']])
+            chunk = [f"{row['cve']} · {host} · 适用性 {outcome} · {row['model']} · {row['status']}",
                      '  待核查：'+', '.join(row['reasons']+row['gaps'])]
             identifiers = row['component_ids']
             if identifiers:
@@ -217,7 +303,7 @@ def audit_preview(report):
 
 class CatalogView:
     error_help = ('目录操作未完成；原快照保留。检查明确选择的格式/新目标/哈希/字面身份与限制。'
-                  'SBOM 需显式 CPE 2.3；脱敏报告请改选“新空白本地报告”，或重新载入原始本地证据。')
+                  'SBOM 需显式 CPE 2.3；Nmap XML 仅支持有限 URI/格式化 CPE profile。脱敏报告请改选“新空白本地报告”，或重新载入原始本地证据。')
 
     def __init__(self, owner, parent):
         self.owner, self.result = owner, None
@@ -231,11 +317,13 @@ class CatalogView:
         self.inventory_format = tk.StringVar(value='native')
         self.asset_label, self.version = tk.StringVar(), tk.StringVar()
         self.scheme = tk.StringVar(value='unknown')
+        self.component_scheme = tk.StringVar(value='unknown')
         self.audit_source = tk.StringVar(value='新空白本地报告')
         self.details_visible = tk.BooleanVar(value=False)
         self.notice = tk.StringVar(value='尚未打开目录或清单。所有操作都需要明确点击；不会下载、扫描或采集。')
         owner.text(parent, '三步开始：① 准备/打开本地目录 → ② 选择产品并填写自己的版本，或导入清单 → ③ 运行预览，核查未知条件后明确应用/导出。')
         self.demo_button = self.button(parent, '完整合成演练 · 两个供应商 / CNA / 正反对照', self.demo)
+        self.nmap_demo_button = self.button(parent, 'Nmap 合成演练 · 两台虚构主机 / 服务与 OS 假设（非实测）', self.nmap_demo)
         owner.text(parent, '合成示例非实测；清单是声明/导入身份，不证明软件已安装。目录收录数 ≠ 已评估资产-CVE 对 ≠ 候选；无匹配不是安全证明。')
         catalog = self.section(parent, '① 本地漏洞库')
         self.entry(catalog, '数据库', self.db_path, 0)
@@ -282,16 +370,21 @@ class CatalogView:
         ttk.Label(form, text='导入文档与手工声明分别保留来源；给导入文档添加手工项前，明确新建声明清单。', wraplength=730).grid(row=6, column=0, columnspan=2, sticky='w')
         imports = self.section(parent, '或导入本地清单 · SBOM 不等于安装/环境验证')
         self.entry(imports, '清单文件', self.inventory_path, 0)
-        ttk.Combobox(imports, textvariable=self.inventory_format, values=('native', 'cyclonedx', 'spdx'), state='readonly').grid(row=1, column=0, sticky='w')
+        self.format_choice = ttk.Combobox(imports, textvariable=self.inventory_format, values=('native', 'cyclonedx', 'spdx', 'nmap'), state='readonly')
+        self.format_choice.grid(row=1, column=0, sticky='w')
         bar = ttk.Frame(imports)
         bar.grid(row=1, column=1, sticky='ew')
-        self.button(bar, '选择清单文件', self.choose_inventory, side='left')
+        self.choose_inventory_button = self.button(bar, '选择清单 / Nmap XML 文件', self.choose_inventory, side='left')
         self.import_button = self.button(bar, '明确导入', self.import_file, side='left')
-        ttk.Label(imports, text='支持 schema1 / CycloneDX JSON 1.6、1.7 / SPDX JSON SPDX-2.3；≤16 MiB、1024 资产、8192 组件。Nmap 服务 CPE 转换暂不支持。', wraplength=730).grid(row=2, column=0, columnspan=2, sticky='w')
+        ttk.Label(imports, text='格式须明确选择：schema1 / CycloneDX JSON 1.6、1.7 / SPDX JSON SPDX-2.3 / nmap 本地 XML 显式 CPE。≤16 MiB、1024 保留主机、8192 组件；不运行扫描器。OS/table 保留为可能假设，来源时间/范围/安装仍需核查。', wraplength=730).grid(row=2, column=0, columnspan=2, sticky='w')
         self.inventory_rows = ttk.Treeview(parent, columns=('asset', 'identity'), show='headings', height=4, selectmode='browse')
         self.inventory_rows.heading('asset', text='清单资产（本地标识符）')
         self.inventory_rows.heading('identity', text='组件身份 / 声明版本')
         self.inventory_rows.pack(fill='x')
+        ordering = self.section(parent, '所选组件的分析规则 · 不改变来源或确认假设')
+        ttk.Combobox(ordering, textvariable=self.component_scheme, values=SCHEMES, state='readonly').grid(row=0, column=0, sticky='w')
+        self.order_button = self.button(ordering, '明确设置所选组件版本排序', self.set_component_scheme, grid_row=1)
+        ttk.Label(ordering, text='默认 unknown；numeric / semver2 / openssh-portable 是分析者选择，不是扫描发现。选择清单行后明确设置，只修改该组件。', wraplength=730).grid(row=2, column=0, columnspan=2, sticky='w')
         self.remove_button = self.button(parent, '明确移除所选组件', self.remove)
         audit = self.section(parent, '③ 运行并检查报告预览')
         ttk.Combobox(audit, textvariable=self.audit_source, values=('新空白本地报告', '当前原始本地报告'), state='readonly').grid(row=0, column=0, sticky='ew')
@@ -300,7 +393,7 @@ class CatalogView:
         for variable in (self.cve, self.vendor, self.product):
             variable.trace_add('write', self.query_changed)
         for variable in (self.db_path, self.db_pin, self.inventory_path, self.inventory_format,
-                         self.asset_label, self.version, self.scheme, self.audit_source):
+                         self.asset_label, self.version, self.scheme, self.component_scheme, self.audit_source):
             variable.trace_add('write', lambda *_: self.invalidate())
 
     def button(self, parent, label, action, *, side=None, grid_row=None):
@@ -380,6 +473,11 @@ class CatalogView:
         if value.get('operation') == 'audit':
             validate_report(value['report'])
             value['preview_text'] = audit_preview(value['report'])
+        elif value.get('operation') == 'inventory':
+            inventory = value['inventory']
+            value['inventory_rows'] = [(row['id'], asset['id'],
+                _component_preview(row)) for asset in inventory['assets'] for row in asset['components']] if inventory else []
+            value['preview_text'] = inventory_preview(inventory) if inventory else '清单为空；不能运行空白清洁审计。'
         return value
 
     def open(self):
@@ -468,8 +566,33 @@ class CatalogView:
                 context['retained_components'] = sum(len(a['components']) for a in value['assets'])
                 context['partial'] = True
                 context['gaps'] = sorted(set(context['gaps']) | {'input-partial'})
+                if 'scanner_summary' in context:
+                    scanner = context['scanner_summary']
+                    scanner['retained_hosts'] = len(value['assets'])
+                    scanner['unmapped_hosts'] = scanner['input_hosts']-len(value['assets'])
             return dict(operation='inventory', inventory=validate_inventory(value) if value['assets'] else None)
         self.begin('明确移除本地声明组件', work)
+
+    def set_component_scheme(self):
+        selection = self.inventory_rows.selection()
+        if not selection or self.inventory is None:
+            raise ValueError('Select a component before setting its analysis scheme.')
+        # Tk snapshots primitive selection/scheme only; the normalized copy and
+        # validation belong to the shared worker, as with other inventory edits.
+        identifier, scheme, previous = selection[0], self.component_scheme.get(), self.inventory
+        def work(cancel, progress):
+            if cancel.is_set() or scheme not in SCHEMES:
+                raise ValueError('Cancelled or unsupported analysis scheme.')
+            value = validate_inventory(previous)
+            selected = next((row for asset in value['assets'] for row in asset['components']
+                             if row['id'] == identifier), None)
+            if selected is None:
+                raise ValueError('Select an existing component.')
+            selected['version_scheme'] = scheme
+            if cancel.is_set():
+                raise ValueError('Cancelled.')
+            return dict(operation='inventory', inventory=validate_inventory(value))
+        self.begin('明确设置组件版本排序（分析规则，非确认）', work)
 
     def new_inventory(self):
         self.begin('明确新建空白声明清单', lambda cancel, progress: dict(operation='inventory', inventory=None))
@@ -492,6 +615,10 @@ class CatalogView:
     def demo(self):
         self.begin('完整合成演练（非实测；临时目录自动清理）', lambda cancel, progress:
                    dict(operation='audit', report=catalog_demo(cancel, progress)), progress_kind='catalog-audit')
+
+    def nmap_demo(self):
+        self.begin('Nmap 合成演练（非实测；不运行扫描器）', lambda cancel, progress:
+                   dict(operation='audit', report=nmap_catalog_demo(cancel, progress)), progress_kind='catalog-audit')
 
     def on_progress(self, value):
         self.notice.set('工作进度（单位保持独立）：'+json.dumps(value, ensure_ascii=False))
@@ -528,21 +655,23 @@ class CatalogView:
                             else '此记录没有可用的字面身份（模式/未知/仅元数据）；已有清单保留。请选择其他记录或导入显式清单。')
         elif operation == 'inventory':
             self.inventory = value['inventory']
-            self.render_inventory()
+            self.render_inventory(value['inventory_rows'])
+            self.owner.app._text(self.output, value['preview_text'])
         elif operation == 'audit':
             self.result = value['report']
             self.owner.app._text(self.output, value['preview_text'])
             self.notice.set('预览已就绪，尚未应用。完整状态/取消/工作限额保留在报告；可明确应用或默认脱敏导出。')
 
-    def render_inventory(self):
+    def render_inventory(self, rows):
         self.inventory_rows.delete(*self.inventory_rows.get_children())
         if self.inventory is None:
             self.notice.set('清单为空；不能运行空白清洁审计。')
             return
-        for asset in self.inventory['assets']:
-            for row in asset['components']:
-                label = row.get('cpe') or f"{row['vendor']} / {row['product']} · {row['version']}"
-                self.inventory_rows.insert('', 'end', iid=row['id'], values=(asset['id'], label))
+        for identifier, asset_id, label in rows:
+            self.inventory_rows.insert('', 'end', iid=identifier, values=(asset_id, label))
         context = self.inventory.get('import_context')
         self.notice.set((f"清单来源 {context['format']}：输入条目 {context['input_entries']}；显式 CPE {context['input_cpe_identifiers']}；保留组件 {context['retained_components']}；无映射条目 {context['unmapped_entries']}；不支持标识符 {context['unsupported_identifiers']}；重复标识符 {context['duplicate_identifiers']}。环境/安装未验证。缺口：{', '.join(context['gaps'])}"
                          if context else f"{len(self.inventory['assets'])} 个声明资产；无隐含地址合并、无安装确认、来源时间可未知。"))
+        if context and 'scanner_summary' in context:
+            scanner = context['scanner_summary']
+            self.notice.set(self.notice.get()+f"；源主机 {scanner['input_hosts']} / 保留 {scanner['retained_hosts']} / 未保留 {scanner['unmapped_hosts']}（可能包括明确移除）；服务条目 {scanner['service_entries']} / OS 条目 {scanner['osclass_entries']}；扫描完成声明 {scanner['scan_status']}。")

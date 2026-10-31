@@ -548,3 +548,102 @@ because preparation is now charged. The 500000-predicate, 50000-pair, 4096-resul
 and 2 MiB result limits remain unchanged. Cancellation or work exhaustion can
 still produce partial output with null unexamined-pair counts. This does not
 establish complete annual-catalog assessment or a wall-time speedup.
+
+## Saved audits
+
+The catalog tool adds **新建保存审计**, **继续一批**, **打开保存审计**,
+**上一结果页**, **下一结果页** and **导出整次审计** in both modes. The legacy
+one-shot preview and both synthetic demos remain available. Select a NEW local
+run file and explicitly check the initially unchecked consent to persist raw
+identifiers and evidence. This is a local raw SQLite evidence store even when
+all later exports are pseudonymized. Protect the file and its SQLite journal
+accordingly. Export consent is independent; `--include-identifiers` does not
+imply storage consent.
+
+New starts save a frozen report/inventory and process one batch. Continue
+processes one further batch, retaining previous pages. It uses the saved frozen
+inputs and the exact catalog bytes selected when the run was created, never the
+current inventory form. After restarting, explicitly select the catalog path
+and the saved run file, then Open or Continue. Catalog paths are not stored in
+run metadata or printed in controlled receipts. The GUI default page size is
+256 retained true/unknown candidate results; its professional detail setting
+allows 1..4096. A batch also has independent pair, predicate and byte limits,
+so it may stop before filling a page. False pairs are counted even though they
+do not produce retained candidate rows. A final empty batch may establish
+exhaustion without creating another result page.
+
+All file/hash/SQLite/matching/render/export work uses the existing shared worker.
+Stop cooperatively cancels that worker; a blocking file/query call may finish
+before cancellation is observed. Busy actions are refused. Changed-input and
+closed-window results do not replace previews. Opening either UI mode reads no
+run or catalog automatically. Open/Continue/Page/Export do not change the panel
+inventory, main report, case or snapshot. Only the selected page is offered to
+the existing explicit Apply action; Apply still needs its separate replacement
+checkbox. Use the ordinary tool export to export just the selected page.
+
+The run status separately shows saved page count, cumulative evaluated
+asset-CVE pairs, matched/unknown/not-matched pairs, retained candidates,
+predicates, identity queries, index hits, relevant distinct CVE records and
+unknown unexamined scope. These are separate units, not confirmed vulnerable
+hosts. In-flight progress reports activity; durable cumulative counts appear
+when the batch returns. The preview identifies its counts as one page.
+`paused` can continue; `blocked` cannot skip the in-flight pair; `limited` is a
+lifetime limit. For blocked/limited runs, narrow the inventory/catalog and create
+a new run. Repeated Continue does not spin or discard old pages. `complete`
+means all selected relevant streams were computationally exhausted. Source
+partial is independent and can remain true at computational completion;
+unexamined pairs stay null for a partial source. Neither completion nor no
+matches proves safety, installation, configuration, exploitability or backport
+status. Every page report stays `partial`, including a page of a complete run.
+
+```console
+python -m wifiscope catalog run start --db catalog.db --inventory inventory.json --run new-run.db --store-raw-identifiers --page-size 256
+python -m wifiscope catalog run continue --db catalog.db --run new-run.db
+python -m wifiscope catalog run status --run new-run.db
+python -m wifiscope catalog run page --run new-run.db --number 1
+python -m wifiscope catalog run page --run new-run.db --number 1 --out new-page-bundle
+python -m wifiscope catalog run export --run new-run.db --out new-run-bundle
+```
+
+- `start`: required `--db`, `--inventory`, `--run` and explicit
+  `--store-raw-identifiers`; optional `--inventory-format` (`native` default,
+  `cyclonedx`, `spdx`, `nmap`), `--input` original local report, `--page-size`
+  (default 256), `--sha256` expected catalog SHA256. Creates then advances ONE
+  batch; it never automatically loops through the catalog.
+- `continue`: required `--db`, `--run`; advances ONE batch from the checkpoint.
+- `status`: required `--run`; prints controlled run metadata without paths or
+  raw input identities.
+- `page`: required `--run`, `--number` (1-based); optional `--out` new ordinary
+  report bundle and `--include-identifiers`. Without `--out`, prints the same
+  privacy-projected report to stdout.
+- `export`: required `--run`, `--out` new whole-run bundle; optional
+  `--include-identifiers`. Contains `summary.json` with `scope=run` and
+  `page-NNNN/report.json`, `report.csv`, `report.html` for every saved page.
+
+Start/Continue return 0 only for computational completion with complete sources;
+1 for paused, blocked, limited or source-partial; 130 for cooperative Ctrl+C
+cancellation. Successful Status/Page/Export reads return 0 while preserving
+partial labels. Invalid input, changed catalog, refused raw consent, existing
+output or a malformed run returns the usual controlled error code 2. Existing
+outputs are not overwritten. A cancellation retains the last valid checkpoint
+and any classified pairs committed by the current batch; an early cancellation
+may leave a ready run with no pages. Resume explicitly after cancellation.
+
+Each batch retains at most 4096 results / 2 MiB canonical result-row bytes,
+classifies at most 50000 pairs and charges at most 500000 predicates. A run has
+at most 4096 pages, 10000000 classified pairs and 512 MiB cumulative canonical
+page payload. Its SQLite main file is limited to 1 GiB, and a rollback journal
+can require up to another 1 GiB; this is not a 1 GiB total-directory guarantee.
+The original report 16 MiB/node bounds still apply. These finite limits are not
+full-disk or physical-power-loss certification.
+
+A whole-run export uses one fresh ephemeral HMAC key across its pages and
+summary, allowing joins inside that bundle without retaining the key or raw run
+database. Another bundle gets unrelated pseudonyms. Independently exported pages
+also get independent pseudonyms. Raw export needs its own explicit opt-in;
+re-export cannot restore already pseudonymized evidence. Local hashes and typed
+validation detect certain corruption or catalog changes but do not authenticate
+an attacker-writable run or prevent malicious wholesale replacement. No source
+refresh, network request, scanner execution or automatic deletion is involved.
+Automated synthetic Tk/CLI tests establish these local workflows, not a novice
+usability study or universal vulnerability coverage.

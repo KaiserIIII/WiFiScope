@@ -131,3 +131,19 @@ python -m wifiscope case triage --db investigation.db --snapshot 1 --finding $ca
 - 取消是协作式：网络等待会轮询取消；本机命令、离线解析和原子案件写入可能需要先完成当前有界操作。状态栏会区分进行中、取消、部分、截止和完成；取消不撤销已完成的持久化写入。
 
 干净报告不能证明安全。请结合相同授权范围的独立复测、配置审查和专业扫描工具。[安全问题报告](SECURITY.md) · [贡献说明](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
+
+## 可继续的保存审计
+
+“漏洞库与资产清单”保留原来的一次性预览和两个合成演练，并新增 **保存审计**。先明确打开本地目录并准备清单，选择不存在的本地保存文件，再勾选“我明确同意在本机保存原始标识符与证据”，点击 **新建保存审计**。默认每批保留 256 个候选结果；专业详细设置可改为 1..4096。原始本机存储同意默认未勾选，与导出的原始标识符选项分开。
+
+**继续一批** 每次只运行一批，保留以前的页；关闭后可选择文件并 **打开保存审计**。继续使用文件里的冻结清单与证据，不使用后来编辑的面板清单，且需明确选择原来内容完全相同的目录。**上一结果页 / 下一结果页** 仅切换预览；须另行勾选替换选择并点击原有“应用工具结果”，才会替换当前报告。打开、继续和整次导出不会自动改变当前报告、案件、快照或面板清单。**导出整次审计** 写入一个不存在的新目录；默认全页共享同一组 HMAC 脱敏标识符，独立页导出之间则不能可靠关联。
+
+```console
+python -m wifiscope catalog run start --db catalog.db --inventory inventory.json --run new-run.db --store-raw-identifiers
+python -m wifiscope catalog run continue --db catalog.db --run new-run.db
+python -m wifiscope catalog run status --run new-run.db
+python -m wifiscope catalog run page --run new-run.db --number 1 --out new-page-bundle
+python -m wifiscope catalog run export --run new-run.db --out new-run-bundle
+```
+
+新建和继续只推进一批：退出码 0 表示所选范围计算完成且来源完整，1 表示暂停、受阻、整次限额或来源部分，130 表示取消，2 表示输入/输出错误。成功的 status/page/export 读取返回 0，页报告仍明确标为部分范围。完成只说明所选目录/输入流已处理，不表示网络安全或漏洞已确认。具体标志、有限存储和信任边界见 [目录说明](docs/catalogs.md#saved-audits)。

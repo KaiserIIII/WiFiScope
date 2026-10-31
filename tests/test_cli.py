@@ -328,6 +328,127 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(report['run']['attempted_connections'], 0)
         self.assertEqual(report['run']['status'], 'partial')
 
+class CatalogRunCliTests(unittest.TestCase):
+    cli = CliTests.cli
+    def test_saved_run_subprocess_consent_pages_status_and_whole_bundle(self):
+        from test_catalog_gui import feed
+        from wifiscope.catalog_store import build_catalog
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, db, inventory, saved = [root/name for name in ('source.json', 'catalog.db', 'inventory.json', 'run.db')]
+            source.write_text(json.dumps(feed(2)), encoding='utf8')
+            build_catalog([source], db)
+            inventory.write_text(json.dumps(dict(schema_version=1, assets=[dict(id='PRIVATE-ASSET', components=[dict(
+                id='PRIVATE-COMPONENT', cpe='cpe:2.3:a:acme:widget:1.2.3:*:*:*:*:*:*:*', source='local', identification='declared')])])), encoding='utf8')
+            args = ('catalog', 'run', 'start', '--db', db, '--inventory', inventory, '--run', saved, '--page-size', 1)
+            refused = self.cli(*args)
+            self.assertEqual(refused.returncode, 2)
+            self.assertFalse(saved.exists())
+            started = self.cli(*args, '--store-raw-identifiers')
+            self.assertEqual(started.returncode, 1, started.stderr)
+            self.assertEqual(json.loads(started.stdout)['page_count'], 1)
+            valid_inventory = inventory.read_text(encoding='utf8')
+            inventory.write_text('{}', encoding='utf8')
+            continued = self.cli('catalog', 'run', 'continue', '--db', db, '--run', saved)
+            self.assertEqual(continued.returncode, 1, continued.stderr)
+            finished = self.cli('catalog', 'run', 'continue', '--db', db, '--run', saved)
+            self.assertEqual(finished.returncode, 0, finished.stderr)
+            status = self.cli('catalog', 'run', 'status', '--run', saved)
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertEqual(json.loads(status.stdout)['cumulative']['evaluated_pairs'], 2)
+            self.assertNotIn(str(root), status.stdout)
+            page = self.cli('catalog', 'run', 'page', '--run', saved, '--number', 1)
+            self.assertEqual(page.returncode, 0, page.stderr)
+            report = json.loads(page.stdout)
+            self.assertEqual(report['catalog_audit']['page']['scope'], 'page')
+            self.assertFalse(report['identifiers_included'])
+            self.assertNotIn('PRIVATE-ASSET', page.stdout)
+            bundle = root/'bundle'
+            exported = self.cli('catalog', 'run', 'export', '--run', saved, '--out', bundle)
+            self.assertEqual(exported.returncode, 0, exported.stderr)
+            self.assertTrue((bundle/'page-0002/report.html').exists())
+            self.assertEqual(json.loads((bundle/'summary.json').read_text())['scope'], 'run')
+            original = (bundle/'summary.json').read_bytes()
+            self.assertEqual(self.cli('catalog', 'run', 'export', '--run', saved, '--out', bundle).returncode, 2)
+            self.assertEqual((bundle/'summary.json').read_bytes(), original)
+            inventory.write_text(valid_inventory, encoding='utf8')
+            db.write_bytes(b'invalid changed catalog')
+            self.assertEqual(self.cli('catalog', 'run', 'start', '--db', db, '--inventory', inventory, '--run', root/'bad.db', '--store-raw-identifiers').returncode, 2)
+            self.assertFalse((root/'bad.db').exists())
+
+    def test_source_partial_changed_catalog_page_output_and_cooperative_sigint(self):
+        from test_catalog_gui import feed
+        from wifiscope.catalog_store import build_catalog
+        from wifiscope.catalog_runs import create_run, run_status
+        from wifiscope.inventory import validate_inventory
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, db, partial_db, saved, invfile = [root/name for name in ('source.json', 'catalog.db', 'partial.db', 'run.db', 'inventory.json')]
+            raw = feed(2)
+            source.write_text(json.dumps(raw), encoding='utf8')
+            build_catalog([source], db)
+            inventory = validate_inventory(dict(schema_version=1, assets=[dict(id='private', components=[dict(
+                id='private-component', cpe='cpe:2.3:a:acme:widget:1.2.3:*:*:*:*:*:*:*', source='local', identification='declared')])]))
+            invfile.write_text(json.dumps(inventory), encoding='utf8')
+            create_run(saved, dict(schema_version=1), inventory, db, store_raw_identifiers=True)
+            # Actual CLI parsing, signal handler and real advance in a child;
+            # only timing is controlled at the per-pair progress boundary.
+            code = '''import signal, sys
+from unittest.mock import patch
+from wifiscope import catalog_runs
+from wifiscope.cli import main
+advance = catalog_runs.advance_run
+def interrupt(*args, **kwargs):
+    def progress(value):
+        if value['evaluated_pairs']:
+            signal.raise_signal(signal.SIGINT)
+    kwargs['progress'] = progress
+    with patch('wifiscope.catalog_chunks.time.monotonic', side_effect=range(10000)):
+        return advance(*args, **kwargs)
+catalog_runs.advance_run = interrupt
+raise SystemExit(main(sys.argv[1:]))
+'''
+            cancelled = subprocess.run([sys.executable, '-c', code, 'catalog', 'run', 'continue', '--run', str(saved), '--db', str(db)],
+                                       capture_output=True, text=True, encoding='utf8', timeout=20)
+            self.assertEqual(cancelled.returncode, 130, cancelled.stderr)
+            self.assertEqual(run_status(saved)['cumulative']['evaluated_pairs'], 1)
+            before = run_status(saved)
+            changed = root/'changed.db'
+            changed.write_bytes(db.read_bytes()+b'changed')
+            failed = self.cli('catalog', 'run', 'continue', '--run', saved, '--db', changed)
+            self.assertEqual(failed.returncode, 2, failed.stderr)
+            self.assertEqual(run_status(saved), before)
+            self.assertNotIn(str(changed), failed.stdout+failed.stderr)
+            out = root/'page'
+            page = self.cli('catalog', 'run', 'page', '--run', saved, '--number', 1, '--out', out)
+            self.assertEqual(page.returncode, 0, page.stderr)
+            self.assertTrue((out/'report.html').exists())
+            self.assertEqual(self.cli('catalog', 'run', 'page', '--run', saved, '--number', 99).returncode, 2)
+            raw['totalResults'] = 10
+            source.write_text(json.dumps(raw), encoding='utf8')
+            build_catalog([source], partial_db)
+            partial = self.cli('catalog', 'run', 'start', '--run', root/'partial-run.db', '--db', partial_db,
+                               '--inventory', invfile, '--store-raw-identifiers')
+            self.assertEqual(partial.returncode, 1, partial.stderr)
+            state = json.loads(partial.stdout)
+            self.assertTrue(state['computation_complete'])
+            self.assertTrue(state['source_partial'])
+            self.assertIsNone(state['unexamined_pairs'])
+
+
+    def test_status_ctrl_c_is_not_swallowed_by_mutating_operation_handler(self):
+        code = """import signal, sys
+from wifiscope import catalog_runs
+from wifiscope.cli import main
+def interrupted(path):
+    signal.raise_signal(signal.SIGINT)
+    return {}
+catalog_runs.run_status = interrupted
+raise SystemExit(main(['catalog', 'run', 'status', '--run', 'not-read.db']))
+"""
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, encoding='utf8', timeout=20)
+        self.assertEqual(result.returncode, 130, result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -103,11 +103,21 @@ def _safe_path(path, *, destination=False):
         raise CatalogError('Invalid local catalog path.') from exc
 
 
-def _file_hash(path):
+def _file_hash(path, *, cancel=None):
     digest = hashlib.sha256()
+    def checkpoint():
+        try:
+            check_cancel(cancel)
+        except CatalogCancelled:
+            raise
+        except Exception:
+            raise CatalogError('Catalog cancellation callback failed.') from None
+    checkpoint()
     with open(path, 'rb') as file:
         while chunk := file.read(65536):
             digest.update(chunk)
+            checkpoint()
+    checkpoint()
     return digest.hexdigest()
 
 
@@ -416,14 +426,14 @@ class _LargestCVE:
 
 class CatalogIndex:
     """Untrusted SQLite opened readonly; all public queries validate typed results."""
-    def __init__(self, path, *, expected_sha256=None):
+    def __init__(self, path, *, expected_sha256=None, cancel=None):
         self._connection = None
         pin = hash_pin(expected_sha256)
         path = _safe_path(path)
         try:
             if path.stat().st_size > MAX_DB_BYTES:
                 raise CatalogError('Catalog database byte budget exceeded.')
-            if pin and _file_hash(path) != pin:
+            if pin and _file_hash(path, cancel=cancel) != pin:
                 raise CatalogError('Catalog SHA256 mismatch.')
             self._connection = sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)
             connection = self._connection

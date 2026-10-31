@@ -84,18 +84,28 @@ GAPS = frozenset(source + suffix for source in ('wifi', 'interfaces', 'routes', 
 
 
 def project_report(report: dict, include_identifiers: bool = False) -> dict:
+    return _project_report(report, include_identifiers, secrets.token_bytes(32))
+
+
+def _project_identity(value, include_identifiers, key):
+    if isinstance(value, list):
+        return [_project_identity(v, include_identifiers, key) for v in value if isinstance(v, str)]
+    if not isinstance(value, str):
+        return None
+    return value if include_identifiers or not value else 'id-' + hmac.new(key, value.encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def _project_report(report, include_identifiers, key):
+    """Project with one caller-owned ephemeral 32-byte key; never retain the key."""
+    if type(key) is not bytes or len(key) != 32:
+        raise ValueError('Export projection requires a 32-byte key.')
     if 'comparison' in report:
         from .case_validation import validate_comparison
         validate_comparison(report['comparison'])
-    key = secrets.token_bytes(32)
     templates = catalog()
 
     def identity(value):
-        if isinstance(value, list):
-            return [identity(v) for v in value if isinstance(v, str)]
-        if not isinstance(value, str):
-            return None
-        return value if include_identifiers or not value else 'id-' + hmac.new(key, value.encode(), hashlib.sha256).hexdigest()[:24]
+        return _project_identity(value, include_identifiers, key)
 
     def walk(value, field=None, path=()):
         supported_number(value)

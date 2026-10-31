@@ -17,3 +17,17 @@
 Measured source/capacity counts and time/memory units are in [catalogs](catalogs.md).
 Native visual review and cross-version/hosted CI require their own observed results;
 automated Tk actions do not substitute for a human usability study.
+
+| Additional saved-run claim | Evidence / scope | Limit |
+| --- | --- | --- |
+| Durable bounded audit continuation | Real SQLite lifecycle/page/export tests; GUI both-mode New/Open/Continue/Page/Apply and child-process CLI start/continue/status/page/export on tiny invented catalogs | Explicit local raw-evidence consent; exact frozen catalog/input scope; finite batch/run/storage limits; no universal coverage |
+| Page versus run scope | Partial page reports, consistent reader snapshot totals, whole-run summary and shared HMAC bundle tests | A complete run only exhausts selected streams; source-partial and installation/configuration/backport uncertainty remain independent |
+| Responsive saved-audit ownership | Actual Tk worker heartbeat, stale/closed/cancel/busy checks and off-Tk SQLite/render verification | Cooperative cancellation; native usability, physical power loss and disk-full certification remain unestablished |
+
+Saved runs retain raw local evidence only after independent explicit consent.
+Ordinary page exports use independent HMAC pseudonyms; one whole-run bundle uses
+a shared fresh key for its pages/summary. Typed validation and hashes are local
+integrity checks, not authentication of attacker-writable evidence. Storage can
+include a 1 GiB main file plus up to another 1 GiB rollback journal. See
+[saved-audit commands and limits](catalogs.md#saved-audits) before interpreting
+completion or cumulative counts.

@@ -49,6 +49,39 @@ def _identities(asset, cancel):
     return values
 
 
+def _result_row(record, evaluated, asset, catalog_id, inventory_fingerprint):
+    outcome = evaluated['applicability']
+    score = max((v['score'] for v in record.get('cvss', [])), default=None)
+    components = [c for c in asset['components'] if c['id'] in evaluated['component_ids']]
+    if not components:
+        components = asset['components']
+    row = dict(id='finding-'+_digest('catalog', catalog_id, inventory_fingerprint, asset['id'], record['cve']),
+        asset_id=asset['id'], component_ids=evaluated['component_ids'], cve=record['cve'],
+        applicability=outcome, severity='info' if score is None or score == 0 else 'high' if score >= 7 else 'medium' if score >= 4 else 'low',
+        score=score, status='imported-unverified' if any(c['identification'] in ('declared', 'imported') or c['source'] in ('sbom', 'nmap') for c in components) else 'needs-review',
+        reasons=evaluated['reasons'], gaps=['configuration/backport-unverified'], model=evaluated['model'],
+        observed_at=sorted({c['observed_at'] for c in components if c['observed_at'] is not None}),
+        sources=sorted({c['source'] for c in components}), published=record.get('published'), modified=record.get('modified'),
+        reference='https://nvd.nist.gov/vuln/detail/'+record['cve'],
+        feed_membership=list(record.get('feed_membership', [])), source_sha256=list(record.get('source_sha256', [])))
+    return copy.deepcopy(row)
+
+
+def _reserve_report(report, normalized, info, summary, status, gaps):
+    result = copy.deepcopy(report)
+    result['catalog_audit'] = dict(schema_version=1, engine_version='1', identity_mode='raw', catalog=copy.deepcopy(info),
+        evaluated_at=datetime.now(timezone.utc).isoformat(), status=status, inventory=normalized,
+        summary=copy.deepcopy(summary), results=[], gaps=sorted(gaps))
+    if any(c['source'] == 'synthetic' for a in normalized['assets'] for c in a['components']):
+        result['synthetic'] = True
+    # Reserve the real rebuilt baseline before reading candidates. Three times
+    # each row's footprint conservatively covers its finding/evidence duplicate.
+    baseline = build_investigation(result)
+    remaining_bytes = 16 * 1024 * 1024 - _check_budget(baseline) - 65536
+    remaining_nodes = 200000 - _nodes(baseline) - 1024
+    return result, remaining_bytes, remaining_nodes
+
+
 def audit_catalog(report, inventory, index, *, cancel=None, progress=None):
     bounded_json(report, max_depth=64, max_nodes=200000, allow_numbers=True)
     validate_report(report)
@@ -82,17 +115,7 @@ def audit_catalog(report, inventory, index, *, cancel=None, progress=None):
         except Exception:
             raise ValueError('Catalog audit cancellation callback failed.') from None
 
-    result = copy.deepcopy(report)
-    result['catalog_audit'] = dict(schema_version=1, engine_version='1', identity_mode='raw', catalog=copy.deepcopy(info),
-        evaluated_at=datetime.now(timezone.utc).isoformat(), status=status, inventory=normalized,
-        summary=copy.deepcopy(summary), results=[], gaps=sorted(gaps))
-    if any(c['source'] == 'synthetic' for a in normalized['assets'] for c in a['components']):
-        result['synthetic'] = True
-    # Reserve the real rebuilt baseline before reading candidates. Three times
-    # each row's footprint conservatively covers its finding/evidence duplicate.
-    baseline = build_investigation(result)
-    remaining_bytes = 16 * 1024 * 1024 - _check_budget(baseline) - 65536
-    remaining_nodes = 200000 - _nodes(baseline) - 1024
+    result, remaining_bytes, remaining_nodes = _reserve_report(report, normalized, info, summary, status, gaps)
     result_bytes = 0
     inventory_fingerprint = _digest(normalized)
     try:
@@ -123,19 +146,7 @@ def audit_catalog(report, inventory, index, *, cancel=None, progress=None):
                         summary['not_matched_pairs'] += 1
                         event()
                         continue
-                    score = max((v['score'] for v in record.get('cvss', [])), default=None)
-                    components = [c for c in asset['components'] if c['id'] in evaluated['component_ids']]
-                    if not components:
-                        components = asset['components']
-                    row = dict(id='finding-'+_digest('catalog', info['catalog_id'], inventory_fingerprint, asset['id'], record['cve']),
-                        asset_id=asset['id'], component_ids=evaluated['component_ids'], cve=record['cve'],
-                        applicability=outcome, severity='info' if score is None or score == 0 else 'high' if score >= 7 else 'medium' if score >= 4 else 'low',
-                        score=score, status='imported-unverified' if any(c['identification'] in ('declared', 'imported') or c['source'] in ('sbom', 'nmap') for c in components) else 'needs-review',
-                        reasons=evaluated['reasons'], gaps=['configuration/backport-unverified'], model=evaluated['model'],
-                        observed_at=sorted({c['observed_at'] for c in components if c['observed_at'] is not None}),
-                        sources=sorted({c['source'] for c in components}), published=record.get('published'), modified=record.get('modified'),
-                        reference='https://nvd.nist.gov/vuln/detail/'+record['cve'],
-                        feed_membership=list(record.get('feed_membership', [])), source_sha256=list(record.get('source_sha256', [])))
+                    row = _result_row(record, evaluated, asset, info['catalog_id'], inventory_fingerprint)
                     row_bytes = len(json.dumps(row, ensure_ascii=False, allow_nan=False).encode('utf8'))
                     row_size, row_nodes = _check_budget(row), _nodes(row)
                     if result_bytes + row_bytes > MAX_RESULT_BYTES or row_size * 3 > remaining_bytes or row_nodes * 3 > remaining_nodes:

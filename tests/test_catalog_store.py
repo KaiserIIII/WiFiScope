@@ -1,6 +1,7 @@
 import builtins
 import copy
 import hashlib
+import inspect
 import json
 import os
 import sqlite3
@@ -27,6 +28,44 @@ def cve(identifier='CVE-2026-12345', vendor='vendor_z', product='product_z', par
 
 
 class CatalogTests(unittest.TestCase):
+    def test_pinned_index_hash_observes_cancel_and_preserves_source(self):
+        self.assertIn('cancel', inspect.signature(CatalogIndex).parameters,
+                      'pinned index hashing must accept cooperative cancellation')
+        feed = self.feed(cve())
+        build_catalog([feed], self.db)
+        before = self.db.read_bytes()
+        pin = hashlib.sha256(before).hexdigest()
+        with self.assertRaises(CatalogCancelled):
+            CatalogIndex(self.db, expected_sha256=pin, cancel=lambda: True)
+        with CatalogIndex(self.db, expected_sha256=pin, cancel=lambda: False) as index:
+            self.assertEqual(index.info()['records'], 1)
+        with self.assertRaises(CatalogError):
+            CatalogIndex(self.db, expected_sha256='0' * 64, cancel=lambda: False)
+        def broken():
+            raise RuntimeError('private-cancel-marker')
+        with self.assertRaises(CatalogError) as caught:
+            CatalogIndex(self.db, expected_sha256=pin, cancel=broken)
+        self.assertNotIn('private-cancel-marker', str(caught.exception))
+        self.assertEqual(self.db.read_bytes(), before)
+
+    def test_hash_cancel_before_between_and_after_64k_reads(self):
+        from wifiscope.catalog_store import _file_hash
+        self.assertIn('cancel', inspect.signature(_file_hash).parameters,
+                      'chunked file hashing must check cancellation')
+        source = self.root / 'hash-input.bin'
+        content = b'x' * (65536 * 2 + 3)
+        source.write_bytes(content)
+        for stop in (1, 2, 4):
+            calls = 0
+            def cancel():
+                nonlocal calls
+                calls += 1
+                return calls == stop
+            with self.subTest(stop=stop), self.assertRaises(CatalogCancelled):
+                _file_hash(source, cancel=cancel)
+            self.assertEqual(source.read_bytes(), content)
+        self.assertEqual(_file_hash(source, cancel=lambda: False), hashlib.sha256(content).hexdigest())
+
     def test_cna_dual_upper_bounds_normalize_to_visible_unknown_without_mutation(self):
         from wifiscope.applicability import evaluate_cve
         rows = []

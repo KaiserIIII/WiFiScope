@@ -42,6 +42,27 @@ def security_sections(prepared):
     return content
 
 
+def catalog_page_scope(prepared):
+    audit = prepared.get('catalog_audit', {})
+    page = audit.get('page')
+    if page is None:
+        return ''
+    from .catalog_audit_schema import validate_catalog_audit
+    validate_catalog_audit(audit)
+    fields = ('evaluated_pairs', 'true_pairs', 'unknown_pairs', 'not_matched_pairs', 'retained_results')
+    return ('<section class="scope"><h2>Catalog audit page / 目录审计分页</h2><p>Page '
+            + esc(page['page_number']) + ' of ' + esc(page['total_pages'])
+            + ' · Run state: ' + esc(page['run_state'])
+            + ' · Stop reason: ' + esc(page['stop_reason'])
+            + '</p><p>Computational completion: ' + esc(page['computation_complete'])
+            + ' · Source partial: ' + esc(page['source_partial'])
+            + '</p><p>Every page remains partial. Completion means the selected inputs were processed; '
+            + 'it does not establish network safety or confirm vulnerability.</p>'
+            + table('Page counts', fields, [audit['summary']])
+            + table('Cumulative run counts', fields + ('relevant_records',), [page['cumulative']])
+            + '</section>')
+
+
 def render(prepared, typed_rows, packets_html):
     if 'comparison' in prepared:
         from .case_validation import validate_comparison
@@ -66,6 +87,7 @@ def render(prepared, typed_rows, packets_html):
     elif len(_run_contexts(prepared)) > 1:
         scope += table('Original run contexts / 原始执行范围', ('status', 'observed_at', 'planned_hosts',
             'attempted_hosts', 'planned_connections', 'attempted_connections', 'unattempted_endpoints'), _run_contexts(prepared))
+    scope += catalog_page_scope(prepared)
     finding_cards = []
     for f in findings:
         plain = explain_finding(f)

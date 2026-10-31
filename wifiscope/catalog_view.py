@@ -390,6 +390,8 @@ class CatalogView:
         ttk.Combobox(audit, textvariable=self.audit_source, values=('新空白本地报告', '当前原始本地报告'), state='readonly').grid(row=0, column=0, sticky='ew')
         self.audit_button = self.button(audit, '运行索引审计预览', self.audit, grid_row=1)
         ttk.Label(parent, textvariable=self.notice, wraplength=760, foreground='#3b5674').pack(fill='x', pady=5)
+        from .catalog_run_view import CatalogRunView
+        self.runs = CatalogRunView(self, parent)
         for variable in (self.cve, self.vendor, self.product):
             variable.trace_add('write', self.query_changed)
         for variable in (self.db_path, self.db_pin, self.inventory_path, self.inventory_format,
@@ -470,6 +472,9 @@ class CatalogView:
 
     @staticmethod
     def prepare_result(value):
+        if value.get('operation') == 'run':
+            from .catalog_run_view import CatalogRunView
+            return CatalogRunView.prepare_result(value)
         if value.get('operation') == 'audit':
             validate_report(value['report'])
             value['preview_text'] = audit_preview(value['report'])
@@ -621,7 +626,10 @@ class CatalogView:
                    dict(operation='audit', report=nmap_catalog_demo(cancel, progress)), progress_kind='catalog-audit')
 
     def on_progress(self, value):
-        self.notice.set('工作进度（单位保持独立）：'+json.dumps(value, ensure_ascii=False))
+        if self.owner.active_panel is self and value == {'status': 'running'}:
+            self.runs.on_progress(value)
+        else:
+            self.notice.set('工作进度（单位保持独立）：'+json.dumps(value, ensure_ascii=False))
 
     def on_result(self, value):
         if 'exported' in value:
@@ -631,7 +639,9 @@ class CatalogView:
             self.notice.set('输入已改变；过期工具结果未应用。请按当前选择重新运行预览。')
             return
         operation = value['operation']
-        if operation == 'open':
+        if operation == 'run':
+            self.runs.on_result(value)
+        elif operation == 'open':
             self.catalog_info, self.loaded_db = value['info'], tuple(value['loaded_db'])
             self.query_changed()
             self.notice.set(f"收录 {self.catalog_info['records']} 条；Rejected {self.catalog_info['rejected_records']}；无模型 {self.catalog_info['without_applicability']}；有缺口 {self.catalog_info['unsupported_records']}。尚未评估任何资产。")

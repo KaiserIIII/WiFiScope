@@ -6,7 +6,7 @@ from .inventory import (validate_inventory, validate_import_context, bounded_jso
                         text, SOURCES, IDENTIFICATIONS, SCHEMES, validate_addresses, validate_scanner)
 
 GAPS = frozenset(('no-match-not-clearance', 'configuration/backport-unverified', 'audit-cancelled',
-                  'audit-work-limit', 'catalog-input-partial', 'inventory-input-partial'))
+                  'audit-work-limit', 'catalog-input-partial', 'inventory-input-partial', 'audit-page-scope'))
 REASONS = frozenset(('positive-witness-missing', 'model-conflict', 'applicability-unknown'))
 SUMMARY = frozenset(('assets', 'components', 'relevant_records', 'evaluated_pairs', 'true_pairs',
     'unknown_pairs', 'not_matched_pairs', 'retained_results', 'unexamined_pairs', 'partial',
@@ -122,7 +122,8 @@ def validate_catalog_audit(value):
     bounded_json(value, allow_numbers=True)
     from .investigate import _check_budget
     _check_budget(value)
-    _keys(value, {'schema_version', 'engine_version', 'identity_mode', 'catalog', 'evaluated_at', 'status', 'inventory', 'summary', 'results', 'gaps'})
+    _keys(value, {'schema_version', 'engine_version', 'identity_mode', 'catalog', 'evaluated_at', 'status', 'inventory', 'summary', 'results', 'gaps'}
+          | ({'page'} if isinstance(value, dict) and 'page' in value else set()))
     if type(value['schema_version']) is not int or value['schema_version'] != 1 or value['engine_version'] != '1' or value['status'] not in ('complete', 'partial', 'cancelled'):
         _bad()
     timestamp(value['evaluated_at'])
@@ -208,6 +209,15 @@ def validate_catalog_audit(value):
                 _hash(item) if key == 'source_sha256' else _count(item, len(cat['feeds'])-1)
     if summary['true_pairs'] != sum(r['applicability'] == 'true' for r in rows):
         _bad()
+    if 'page' in value:
+        from .catalog_run_schema import validate_page
+        validate_page(value['page'], summary, value['identity_mode'])
+        if (value['status'] != 'partial' or not summary['partial'] or summary['unexamined_pairs'] is not None
+                or 'audit-page-scope' not in value['gaps']
+                or value['page']['source_partial'] != bool(any(f['partial'] for f in cat['feeds'])
+                    or value['inventory'].get('import_context', {}).get('partial'))
+                or value['page']['cumulative']['relevant_records'] > cat['records']):
+            _bad()
 
 
 def project_catalog_audit(value, identity):
@@ -215,6 +225,8 @@ def project_catalog_audit(value, identity):
     result = copy.deepcopy(value)
     first = value['inventory']['assets'][0]['id']
     result['identity_mode'] = 'projected' if value['identity_mode'] == 'projected' or identity(first) != first else 'raw'
+    if 'page' in result:
+        result['page']['run_id'] = identity(result['page']['run_id'])
     for asset in result['inventory']['assets']:
         for key in ('id', 'address'):
             if key in asset:

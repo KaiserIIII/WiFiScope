@@ -25,6 +25,8 @@ def parser():
     add_survey_parser(commands)
     from .catalog_cli import add_parser as add_catalog_parser
     add_catalog_parser(commands)
+    from .field_cli import add_parser as add_field_parser
+    add_field_parser(commands)
     commands.add_parser('gui', help='Open the Chinese Tk workstation (default)')
     for name in ('demo', 'collect', 'probe', 'audit', 'analyze', 'import-scan', 'packets', 'compare', 'merge'):
         sub = commands.add_parser(name)
@@ -137,6 +139,9 @@ def main(argv=None):
         if args.command == 'catalog':
             from .catalog_cli import run as catalog_run
             return catalog_run(args)
+        if args.command == 'field':
+            from .field_cli import run as field_run
+            return field_run(args)
         if args.command == 'case':
             return case_command(args)
         if getattr(args, 'require_out', False) and not args.out:

@@ -122,6 +122,9 @@ def _url(value):
         if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.username is not None or parsed.password is not None:
             raise ValueError
         host = _host(parsed.hostname)
+        if '[' in parsed.netloc or ']' in parsed.netloc:
+            if ':' not in host or not re.fullmatch(r'\[[^\[\]]+\](?::[0-9]+)?', parsed.netloc):
+                raise ValueError
         port = parsed.port if parsed.port is not None else (443 if parsed.scheme == 'https' else 80)
         if not 1 <= port <= 65535 or parsed.netloc.endswith(':'):
             raise ValueError
@@ -278,7 +281,14 @@ def _operation(sock, callback, reading, deadline, cancel):
             _wait(sock, reading, deadline, cancel)
 
 
-def _connect(address, family, port, timeout, cancel):
+def _sockaddr(address, family, port):
+    if family == 'IPv6':
+        plain, _, zone = address.partition('%')
+        return plain, port, 0, int(zone) if zone else 0
+    return address, port
+
+
+def _connect(address, family, port, timeout, cancel, *, source=None):
     """Connect to a numeric sockaddr; never invoke a second DNS lookup."""
     _check_cancel(cancel)
     deadline = time.monotonic() + timeout
@@ -287,11 +297,9 @@ def _connect(address, family, port, timeout, cancel):
     started = False
     try:
         sock.setblocking(False)
-        if af == socket.AF_INET6:
-            plain, _, zone = address.partition('%')
-            target = (plain, port, 0, int(zone) if zone else 0)
-        else:
-            target = (address, port)
+        if source is not None:
+            sock.bind(_sockaddr(source, family, 0))
+        target = _sockaddr(address, family, port)
         started = True
         error = sock.connect_ex(target)
         pending = {errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY,
@@ -578,7 +586,7 @@ def _security(headers, evaluated):
     return result
 
 
-def _http_probe(url, answer, timeout, limiter, cancel):
+def _http_probe(url, answer, timeout, limiter, cancel, *, source=None, tls_starter=None):
     parsed = urlsplit(url)
     row = dict(url=url, address=answer['address'], family=answer['family'], status='error',
                status_code=None, attempts=0, header_presence={}, content_kind='unknown',
@@ -589,9 +597,10 @@ def _http_probe(url, answer, timeout, limiter, cancel):
         connection_timeout = _remaining(timeout, limiter.deadline)
         deadline = time.monotonic() + connection_timeout
         row['attempts'] = 1
-        sock = _connect(answer['address'], answer['family'], _url_port(url), connection_timeout, cancel)
+        binding = {'source': source} if source is not None else {}
+        sock = _connect(answer['address'], answer['family'], _url_port(url), connection_timeout, cancel, **binding)
         if parsed.scheme == 'https':
-            sock = _start_tls(sock, parsed.hostname, deadline, cancel)
+            sock = (tls_starter or _start_tls)(sock, parsed.hostname, deadline, cancel)
         request = memoryview(('HEAD ' + (parsed.path or '/') + ' HTTP/1.1\r\nHost: ' +
                               parsed.netloc + '\r\nConnection: close\r\n\r\n').encode('ascii'))
         while request:

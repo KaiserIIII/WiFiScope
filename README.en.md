@@ -1,5 +1,7 @@
 # WiFiScope
 
+The campus field audit combines current link configuration, explicitly authorized gateway and portal checks, and peer observations. The CLI also supports a controlled two-device TCP handshake and optional DNS, NTP, DoH and download observations. See the [campus field guide](docs/campus-field.md).
+
 A local security evidence workstation using only the Python standard library. It combines Wi-Fi/local configuration, authorized TCP/TLS/HTTP checks, scanner reports, local CVE candidate audits, bounded live capture and sampled signal surveys. The Chinese Tk interface and CLI share typed evidence. Exports redact identities by default; case history stays local.
 
 [中文](README.md) · [Comparison with established tools](docs/competitive-landscape.md) · [Validation](docs/validation.md) · [Methodology](docs/audit-methodology.md) · [Dependency audit](docs/dependencies.md)

@@ -69,11 +69,10 @@ class Workstation:
         security_bar = ttk.Frame(self.root, padding=(16, 3))
         security_bar.pack(fill='x')
         self.security_buttons = []
-        for key, label in [('catalog', '漏洞库与资产清单'), ('vulnerability', '漏洞审计'), ('capture', '实时抓包'), ('survey', 'Wi-Fi 热力图')]:
+        for key, label in [('catalog', '漏洞库与资产清单'), ('vulnerability', '漏洞审计'), ('capture', '实时抓包'), ('survey', 'Wi-Fi 热力图'), ('field', '校园网体检')]:
             button = ttk.Button(security_bar, text=label, command=lambda k=key: self.open_security_tools(k))
             button.pack(side='left', padx=(0, 8))
             self.security_buttons.append(button)
-        ttk.Label(security_bar, text='独立工具结果 · 明确应用才替换快照').pack(side='left')
         persistent_footer = ttk.Frame(self.root, padding=(16, 6))
         persistent_footer.pack(side='bottom', fill='x')
         self.guided = GuidedView(self, self.root, persistent_footer)

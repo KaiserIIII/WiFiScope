@@ -71,6 +71,7 @@ class SecurityToolsView:
         from .capture_view import CaptureView
         from .survey_view import SurveyView
         from .catalog_view import CatalogView
+        from .field_view import FieldView
 
         self.panels = {}
         self.scroll_pages = {}
@@ -79,6 +80,7 @@ class SecurityToolsView:
             ("vulnerability", "漏洞审计", VulnerabilityView),
             ("capture", "实时抓包", CaptureView),
             ("survey", "Wi-Fi 热力图", SurveyView),
+            ("field", "校园网体检", FieldView),
         ]:
             frame, inner = self.page()
             panel = cls(self, inner)
@@ -86,6 +88,13 @@ class SecurityToolsView:
             self.panels[key] = panel
             self.notebook.add(frame, text=label)
         self.window.bind("<MouseWheel>", self.wheel)
+        self.notebook.bind('<<NotebookTabChanged>>', self._update_actions)
+
+    def _update_actions(self, _event=None):
+        standalone = getattr(self.selected(), 'standalone', False)
+        self.apply_button.state(['disabled' if standalone else '!disabled'])
+        if standalone:
+            self.replace_current.set(False)
 
     def page(self):
         frame = ttk.Frame(self.notebook)
@@ -199,7 +208,10 @@ class SecurityToolsView:
     def apply(self):
         if self.app.controller.busy:
             raise ValueError("Wait for the current operation.")
-        result = self.selected().result
+        panel = self.selected()
+        if getattr(panel, 'standalone', False):
+            return
+        result = panel.result
         if result is None or not self.replace_current.get():
             self.status.set("先生成结果，再勾选相邻的替换选择；当前案件及处置保留。")
             return
@@ -208,9 +220,21 @@ class SecurityToolsView:
         self.status.set("正在验证并应用工具结果；验证失败将保留当前快照。")
 
     def export(self):
-        result = self.selected().result
+        panel = self.selected()
+        result = panel.result
         if result is None:
             raise ValueError("Generate a result first.")
+        if getattr(panel, 'standalone', False):
+            from .field_report import save_field
+
+            path = filedialog.asksaveasfilename(parent=self.window, title='新建校园网体检报告',
+                                                defaultextension='.json', filetypes=[('JSON', '*.json')])
+            if path:
+                raw = self.export_raw.get()
+                self.start(panel, '导出校园网体检报告', lambda cancel, progress: {
+                    'exported': save_field(result, path, raw)
+                }, progress_kind='catalog-local')
+            return
         directory = filedialog.asksaveasfilename(
             parent=self.window, title="新建工具报告目录（不得已存在）"
         )

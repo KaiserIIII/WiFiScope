@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 
+from . import __version__
 from .batch import audit_scope, plan_scope
 from .cases import CaseStore, STATUSES
 from .collect import collect_local
@@ -16,6 +17,7 @@ from .workstation import controlled_report, existing_case, load_json, open_evide
 
 def parser():
     p = argparse.ArgumentParser(prog='wifiscope', description='Local evidence workstation. Active checks require an explicit authorized target. No dependency installation required.')
+    p.add_argument('--version', action='version', version=f'WiFiScope {__version__}')
     commands = p.add_subparsers(dest='command')
     from .vulnerability_cli import add_parser
     add_parser(commands)

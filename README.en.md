@@ -6,13 +6,18 @@ A local security evidence workstation using only the Python standard library. It
 
 [中文](README.md) · [Comparison with established tools](docs/competitive-landscape.md) · [Validation](docs/validation.md) · [Methodology](docs/audit-methodology.md) · [Dependency audit](docs/dependencies.md)
 
-## Run from source or ZIP
+## Run WiFiScope
+
+On Windows x64, extract the portable ZIP and double-click `WiFiScope.cmd`. The runtime is included. [Download the portable build](https://github.com/KaiserIIII/WiFiScope/releases/latest) · [Build and runtime details](docs/windows-portable.md)
+
+### Run from source
 
 Use Python 3.12 or 3.13. Extract the source ZIP and open a terminal in the directory containing `wifiscope`. No pip, account, server, or dependency installation is required.
 
 ```console
 python -m wifiscope
 python -m wifiscope --help
+python -m wifiscope --version
 python -m wifiscope demo --out demo-report
 ```
 

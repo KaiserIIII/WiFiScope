@@ -5,6 +5,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from . import __version__
 from .batch import audit_scope, plan_scope
 from .collect import collect_local
 from .comparison import compare_snapshots, comparison_notice
@@ -28,7 +29,7 @@ class Workstation:
         self.tables = {}
         self.finding_rows = {}
         self.history_offset = 0
-        self.root.title('WiFiScope · 安全证据工作台')
+        self.root.title(f'WiFiScope {__version__} · 安全证据工作台')
         width = min(1180, max(900, root.winfo_screenwidth() - 70))
         height = min(740, max(620, root.winfo_screenheight() - 70))
         self.root.geometry(f'{width}x{height}')

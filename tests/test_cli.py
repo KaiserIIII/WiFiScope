@@ -15,6 +15,13 @@ class CliTests(unittest.TestCase):
     def cli(self, *args):
         return subprocess.run([sys.executable, '-m', 'wifiscope', *map(str, args)], capture_output=True, text=True, encoding='utf-8', timeout=20)
 
+    def test_version_reports_package_version(self):
+        from wifiscope import __version__
+
+        run = self.cli('--version')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.strip(), f'WiFiScope {__version__}')
+
     def test_demo_bundle_help_invalid_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / 'demo'

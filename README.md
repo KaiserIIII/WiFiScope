@@ -6,11 +6,16 @@
 
 ## 直接运行
 
+在 Windows x64 上，下载并解压便携包，再双击 `WiFiScope.cmd`。包内自带运行时。[下载便携版](https://github.com/KaiserIIII/WiFiScope/releases/latest) · [构建与运行说明](docs/windows-portable.md)
+
+### 从源码运行
+
 需要 Python 3.12 或 3.13。下载源码 ZIP 并解压，在包含 `wifiscope` 目录的位置打开终端。无需 pip、账户、服务器或依赖安装。
 
 ```console
 python -m wifiscope
 python -m wifiscope --help
+python -m wifiscope --version
 python -m wifiscope demo --out demo-report
 ```
 

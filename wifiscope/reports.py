@@ -41,11 +41,15 @@ def export_report(report: dict, directory: str | Path, include_identifiers: bool
     An existing directory (even empty) is rejected. Files are staged in a sibling
     directory and atomically linked only after all formats are fully written.
     """
+    return export_prepared_report(prepare_export(report, include_identifiers), directory)
+
+
+def export_prepared_report(prepared, directory, *, render_page=None):
+    """Write a report after its caller has applied the relevant projection."""
     directory = Path(directory).absolute()
-    if directory.exists():
+    if directory.exists() or directory.is_symlink():
         raise FileExistsError('Choose a new report bundle directory.')
     directory.parent.mkdir(parents=True, exist_ok=True)
-    prepared = prepare_export(report, include_identifiers)
     rows = []
 
     def flatten(value, path='report'):
@@ -65,7 +69,7 @@ def export_report(report: dict, directory: str | Path, include_identifiers: bool
     writer.writerows((_csv_cell(field), _csv_cell(value)) for field, value in rows)
     html_rows = ''.join('<tr><th>' + html.escape(field, quote=True) + '</th><td>' + html.escape('' if value is None else str(value), quote=True) + '</td></tr>' for field, value in rows)
     from .report_html import render
-    document = render(prepared, html_rows, _packets_html(prepared))
+    document = (render_page or render)(prepared, html_rows, _packets_html(prepared))
     heatmap = None
     if 'wifi_survey' in prepared:
         from .heatmap import interpolate_survey, render_heatmap_svg

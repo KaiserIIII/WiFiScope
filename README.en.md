@@ -28,6 +28,10 @@ The demo contains invented synthetic evidence, never live measurements: WPA2/ope
 
 See [guidance, glossary and privacy choices](docs/usability.md). Main-window raw report export and raw case retention are separate professional opt-ins. Main novice export always redacts. The dedicated tools below have their own explicit export privacy choice in either mode.
 
+## Network workbench
+
+Open Network Workbench in the desktop toolbar for a filterable packet timeline, layered diagnostics and finite monitoring, Cisco IOS evidence and configuration comparison, observed topology, and local report exports. See the [workbench guide](docs/network-workbench.md).
+
 ## Four security tools
 
 The persistent header opens **漏洞库与资产清单** (indexed catalog/inventory), **漏洞审计** (small-pack evidence audit), **实时抓包** (live capture), and **Wi-Fi 热力图** (survey) in both modes. Panels scroll; Apply, Cancel and Export remain in the footer. Opening, changing modes or clicking a survey position starts no collection. Each explicit offline demo runs real local engines on prominently labeled synthetic evidence.

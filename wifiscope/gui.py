@@ -24,6 +24,7 @@ class Workstation:
         self.demo_provider = demo_provider
         self.controller = Controller()
         self.security_tools = None
+        self.network_workbench = None
         self.tables = {}
         self.finding_rows = {}
         self.history_offset = 0
@@ -73,6 +74,7 @@ class Workstation:
             button = ttk.Button(security_bar, text=label, command=lambda k=key: self.open_security_tools(k))
             button.pack(side='left', padx=(0, 8))
             self.security_buttons.append(button)
+        ttk.Button(security_bar, text='网络工作台', command=self.open_network_workbench).pack(side='left')
         persistent_footer = ttk.Frame(self.root, padding=(16, 6))
         persistent_footer.pack(side='bottom', fill='x')
         self.guided = GuidedView(self, self.root, persistent_footer)
@@ -208,6 +210,17 @@ class Workstation:
             from .security_tools_view import SecurityToolsView
             self.security_tools = SecurityToolsView(self)
         self.security_tools.show(key)
+
+    def open_network_workbench(self, capture=None):
+        fresh = self.network_workbench is None or not self.network_workbench.window.winfo_exists()
+        if fresh:
+            from .network_workbench_view import NetworkWorkbench
+            self.network_workbench = NetworkWorkbench(self.root)
+        if capture is None and fresh and self.controller.report:
+            capture = self.controller.report if 'packet_analysis' in self.controller.report else None
+        if capture is not None:
+            self.network_workbench.show_packets(capture)
+        self.network_workbench.window.lift()
 
     def _table(self, frame, key, columns):
         box = ttk.Frame(frame)
@@ -499,6 +512,8 @@ class Workstation:
             self._text(self.comparison, '\n'.join(lines))
 
     def close(self):
+        if self.network_workbench is not None and self.network_workbench.window.winfo_exists():
+            self.network_workbench.close()
         if self.security_tools is not None:
             self.security_tools.close()
         self.controller.cancel()

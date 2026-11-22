@@ -99,6 +99,7 @@ class CaptureView:
             command=lambda: owner.guard(self.demo),
         )
         self.demo_button.pack(side="left", padx=8)
+        ttk.Button(actions, text="查看协议时间线", command=self.open_timeline).pack(side="left")
         ttk.Label(parent, textvariable=self.progress, wraplength=790).pack(
             fill="x", pady=5
         )
@@ -122,6 +123,12 @@ class CaptureView:
             "只读枚举抓包接口",
             lambda cancel, progress: {"interface_catalog": list_capture_interfaces()},
         )
+
+    def open_timeline(self):
+        if self.result is None:
+            self.owner.status.set("先取得抓包结果或打开离线示例。")
+            return
+        self.owner.app.open_network_workbench(self.result)
 
     def choose_raw(self):
         path = filedialog.asksaveasfilename(

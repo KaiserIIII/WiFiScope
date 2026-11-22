@@ -3,15 +3,14 @@ from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import ipaddress
-import re
 import struct
 
 from .capture_formats import records
+from .packet_timeline import HTTP_REQUEST, MAX_EVENTS, MAX_TRACKED, MAX_AGE_SECONDS, MAX_PACKET_DISTANCE, PacketTimeline
 
 CAPS = {'endpoints': 8192, 'conversations': 16384, 'arp_bindings': 8192, 'observations': 1024}
 LIMITATIONS = {'packet-timing-limited', 'packet-offload-unknown', 'packet-checksums-unverified',
                'packet-retransmission-unknown', 'packet-scope-unknown'}
-HTTP_REQUEST = re.compile(rb'^(?:GET|HEAD|POST|PUT|DELETE|CONNECT|OPTIONS|TRACE|PATCH) [\x21-\x7e]{1,8192} HTTP/1\.[01]\r\n')
 
 
 def analyze_capture(data: bytes) -> dict:
@@ -21,6 +20,7 @@ def analyze_capture(data: bytes) -> dict:
     gaps. Packet timestamps are original evidence; import time is separate.
     """
     gaps = set()
+    timeline = PacketTimeline(gaps)
     summary = dict(packets=0, captured_bytes=0, wire_bytes=0, protocol_counts={}, endpoints=[], conversations=[],
         tcp_syn_packets=0, tcp_reset_packets=0, dns_queries=0, dns_nxdomain=0,
         plaintext_http_packets=0, arp_bindings=[], observations=[])
@@ -40,7 +40,7 @@ def analyze_capture(data: bytes) -> dict:
         row['packets'] += 1
         row['bytes'] += size
 
-    def transport(payload, proto, src, dst, size, fragmented):
+    def transport(payload, proto, src, dst, size, ip_version, fragmented, complete):
         protocol = {6: 'tcp', 17: 'udp', 1: 'icmp', 58: 'icmpv6'}.get(proto)
         if protocol is None:
             gaps.add('packet-transport-unsupported')
@@ -62,6 +62,8 @@ def analyze_capture(data: bytes) -> dict:
                     summary['tcp_reset_packets'] += bool(payload[13] & 4)
                     if not fragmented and HTTP_REQUEST.match(payload[header:]):
                         summary['plaintext_http_packets'] += 1
+                    if complete:
+                        timeline.tcp((src, dst, sport, dport), payload, header)
         elif proto == 17:
             if len(payload) < 8:
                 gaps.add('packet-truncated')
@@ -79,13 +81,17 @@ def analyze_capture(data: bytes) -> dict:
                         if flags & 0x7800 == 0:
                             summary['dns_queries'] += not bool(flags & 0x8000)
                             summary['dns_nxdomain'] += bool(flags & 0x8000) and flags & 15 == 3
+                    if complete:
+                        timeline.udp(ip_version, (src, dst, sport, dport), payload[8:length])
+        elif complete and (ip_version, proto) in ((4, 1), (6, 58)):
+            timeline.echo(ip_version, src, dst, payload)
         key = (src, dst, sport, dport, protocol)
         row = bounded(conversations, key, 'conversations', dict(src_address=src, dst_address=dst,
             src_port=sport, dst_port=dport, protocol=protocol, packets=0, bytes=0))
         row['packets'] += 1
         row['bytes'] += size
 
-    for link, frame, observed, original in records(data, gaps):
+    for link, frame, observed, original, scope in records(data, gaps, include_scope=True):
         summary['packets'] += 1
         summary['captured_bytes'] += len(frame)
         summary['wire_bytes'] += original
@@ -114,25 +120,28 @@ def analyze_capture(data: bytes) -> dict:
             kind, start = struct.unpack_from('!H', frame, 14)[0], 16
         else:
             kind, start = struct.unpack_from('!H', frame)[0], 20
-        vlans = 0
+        vlans = []
         while kind in (0x8100, 0x88a8, 0x9100):
-            vlans += 1
-            if vlans > 4:
+            if len(vlans) >= 4:
                 gaps.add('packet-vlan-limit')
                 break
             if len(frame) < start + 4:
                 gaps.add('packet-truncated')
                 break
-            kind = struct.unpack_from('!H', frame, start + 2)[0]
+            tci, inner = struct.unpack_from('!HH', frame, start)
+            vlans.append((kind, tci & 0xfff))
+            kind = inner
             start += 4
         else:
             payload = frame[start:]
+            timeline.begin_packet(scope, tuple(vlans), summary['packets'], observed)
             if kind == 0x806:
                 protocols['arp'] += 1
                 if len(payload) < 28:
                     gaps.add('packet-truncated')
                     continue
-                if struct.unpack_from('!HHBB', payload) != (1, 0x800, 6, 4) or struct.unpack_from('!H', payload, 6)[0] not in (1, 2):
+                hardware, network, mac_size, ip_size, operation = struct.unpack_from('!HHBBH', payload)
+                if (hardware, network, mac_size, ip_size) != (1, 0x800, 6, 4) or operation not in (1, 2):
                     gaps.add('packet-arp-unsupported')
                     continue
                 address = str(ipaddress.ip_address(bytes(payload[14:18])))
@@ -140,6 +149,9 @@ def analyze_capture(data: bytes) -> dict:
                 if address != '0.0.0.0':
                     bounded(bindings, (address, mac), 'arp_bindings', dict(address=address, mac=mac))
                     conflicts.add(address)
+                if len(frame) == original:
+                    target = str(ipaddress.ip_address(bytes(payload[24:28])))
+                    timeline.arp(operation, address, target, payload)
                 continue
             if kind == 0x800:
                 protocols['ipv4'] += 1
@@ -155,6 +167,7 @@ def analyze_capture(data: bytes) -> dict:
                     gaps.add('packet-truncated')
                 if len(payload) < header:
                     continue
+                ip_version = 4
                 src, dst = [str(ipaddress.ip_address(bytes(payload[n:n + 4]))) for n in (12, 16)]
                 proto, body = payload[9], payload[header:min(total, len(payload))]
                 fragment = struct.unpack_from('!H', payload, 6)[0]
@@ -170,6 +183,7 @@ def analyze_capture(data: bytes) -> dict:
                     continue
                 if len(payload) < total:
                     gaps.add('packet-truncated')
+                ip_version = 6
                 src, dst = [str(ipaddress.ip_address(bytes(payload[n:n + 16]))) for n in (8, 24)]
                 proto, pos, walked, steps = payload[6], 40, 0, 0
                 fragmented = nonfirst = False
@@ -211,7 +225,8 @@ def analyze_capture(data: bytes) -> dict:
             if fragmented:
                 gaps.add('packet-fragment')
             if not nonfirst:
-                transport(body, proto, src, dst, len(frame), fragmented)
+                complete = not fragmented and len(frame) == original and total <= len(payload)
+                transport(body, proto, src, dst, len(frame), ip_version, fragmented, complete)
     by_address = Counter(address for address, _ in bindings)
     for address in sorted(conflicts):
         if by_address[address] > 1:
@@ -221,13 +236,16 @@ def analyze_capture(data: bytes) -> dict:
     if unknown_time:
         gaps.add('packet-time-unknown')
     summary.update(protocol_counts=dict(protocols), endpoints=list(endpoints.values()),
-        conversations=list(conversations.values()), arp_bindings=list(bindings.values()), partial=bool(gaps))
+        conversations=list(conversations.values()), arp_bindings=list(bindings.values()), partial=bool(gaps),
+        protocol_timeline=timeline.result())
     gaps.update(LIMITATIONS)
     source_hash = hashlib.sha256(data).hexdigest()
     summary.update(source_sha256=source_hash, observed_at=None if unknown_time else first_time, source='packets')
     summary['limits'] = dict(max_input_bytes=16 * 1024 * 1024, max_packets=100000, max_endpoints=8192,
         max_conversations=16384, max_arp_bindings=8192, max_observations=1024, max_vlan_tags=4,
-        max_ipv6_extension_headers=16, max_ipv6_extension_bytes=2048)
+        max_ipv6_extension_headers=16, max_ipv6_extension_bytes=2048, max_timeline_events=MAX_EVENTS,
+        max_timeline_tracked=MAX_TRACKED, max_timeline_age_seconds=MAX_AGE_SECONDS,
+        max_timeline_distance_packets=MAX_PACKET_DISTANCE)
     summary['input_bytes'] = len(data)
     return dict(schema_version=1, packet_analysis=summary, sources=[dict(type='pcapng' if data[:4] == b'\x0a\x0d\x0d\x0a' else 'pcap',
         sha256=source_hash, imported_at=datetime.now(timezone.utc).isoformat(), observed_at=summary['observed_at'],

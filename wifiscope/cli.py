@@ -27,6 +27,8 @@ def parser():
     add_catalog_parser(commands)
     from .field_cli import add_parser as add_field_parser
     add_field_parser(commands)
+    from .network_workbench_cli import add_parser as add_network_parser
+    add_network_parser(commands)
     commands.add_parser('gui', help='Open the Chinese Tk workstation (default)')
     for name in ('demo', 'collect', 'probe', 'audit', 'analyze', 'import-scan', 'packets', 'compare', 'merge'):
         sub = commands.add_parser(name)
@@ -142,6 +144,9 @@ def main(argv=None):
         if args.command == 'field':
             from .field_cli import run as field_run
             return field_run(args)
+        if args.command == 'network':
+            from .network_workbench_cli import run as network_run
+            return network_run(args)
         if args.command == 'case':
             return case_command(args)
         if getattr(args, 'require_out', False) and not args.out:

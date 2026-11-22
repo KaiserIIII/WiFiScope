@@ -62,6 +62,10 @@ python -m wifiscope survey --input project.json --format json --include-identifi
 
 不要原样运行接口占位符；先枚举后选择获授权接口。详见[漏洞引擎](docs/vulnerability-engine.md)、[实时抓包](docs/live-capture.md)、[Wi-Fi 调查](docs/wifi-survey.md)。调查 CSV 必须使用 `x,y,value,observed_at,ssid,bssid,metric`，不是导出的扁平报告 CSV；空 value 表示未知。
 
+## 网络工作台
+
+顶栏的「网络工作台」提供协议时间线、本机与分层诊断、有限轮次监测、VLAN/OSPF/LLDP 拓扑及离线配置比较。支持筛选、查看记录、可选本机 Wireshark/TShark 和 HTML/JSON/CSV 导出。见[网络工作台使用说明](docs/network-workbench.md)。
+
 ## 工作台流程
 
 1. 切换到“专业工作台”，选择“离线演示”“本机采集”，或“打开证据”（Ctrl+O）。导入必须选择 nmap、greenbone、pcap、pcapng、netsh、nmcli 或 WiFiScope JSON；XML 不会静默猜测类型。

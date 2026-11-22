@@ -6,12 +6,14 @@ snapshot only; they provide data minimization, not guaranteed anonymity.
 from datetime import datetime
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 
 from .rules import catalog
 from .wifi import _security_value
 from .numeric import supported_number
+from .packet_timeline import EVENT_PROTOCOLS, HTTP_METHODS, MAX_AGE_SECONDS, MAX_EVENTS
 
 IDENTITIES = frozenset(('ssid', 'bssid', 'name', 'mac', 'mac_address', 'interface',
     'interface_name', 'interface_alias', 'host', 'hostname', 'hostnames', 'address', 'addresses',
@@ -25,7 +27,7 @@ STRUCTURES = frozenset(('wifi', 'interfaces', 'routes', 'firewall', 'connectivit
     'services', 'sources', 'imported_findings', 'coverage', 'investigation', 'summary',
     'priorities', 'target_gaps', 'run', 'run_contexts', 'packets', 'packets_contexts', 'counts',
     'case', 'snapshots', 'contexts', 'packet_analysis', 'packet_analysis_contexts',
-    'endpoints', 'conversations', 'arp_bindings', 'protocol_counts', 'limits',
+    'endpoints', 'conversations', 'arp_bindings', 'protocol_counts', 'protocol_timeline', 'limits',
     'comparison', 'before', 'after', 'asset_changes', 'wifi_changes'))
 NUMBERS = frozenset(('signal_percent', 'channel', 'metric', 'port', 'attempts',
     'successes', 'failure_percent', 'rtt_min_ms', 'rtt_mean_ms', 'rtt_max_ms', 'jitter_ms',
@@ -36,7 +38,8 @@ NUMBERS = frozenset(('signal_percent', 'channel', 'metric', 'port', 'attempts',
     'src_port', 'dst_port', 'tcp_syn_packets', 'tcp_reset_packets', 'dns_queries', 'dns_nxdomain',
     'plaintext_http_packets', 'max_input_bytes', 'max_packets', 'max_endpoints', 'max_conversations',
     'max_arp_bindings', 'max_observations', 'max_vlan_tags', 'max_ipv6_extension_headers',
-    'max_ipv6_extension_bytes', 'input_bytes', 'wire_bytes'))
+    'max_ipv6_extension_bytes', 'input_bytes', 'wire_bytes', 'max_timeline_events',
+    'max_timeline_tracked', 'max_timeline_age_seconds', 'max_timeline_distance_packets'))
 BOOLEANS = frozenset(('enabled', 'proxy_configured', 'server', 'location', 'partial',
     'content_type', 'content_length', 'strict_transport_security', 'content-type',
     'content-length', 'strict-transport-security', 'verified', 'hsts', 'hsts_positive_max_age',
@@ -80,7 +83,7 @@ GAPS = frozenset(source + suffix for source in ('wifi', 'interfaces', 'routes', 
     'packet-vlan-limit', 'packet-transport-unsupported', 'packet-invalid-length',
     'packet-arp-unsupported', 'packet-ipv6-unsupported', 'packet-ipv6-extension-limit',
     'packet-network-unsupported', 'packet-fragment', 'packet-scope-unknown', 'comparison-scope-limited',
-    'capture-analysis-limit'}
+    'capture-analysis-limit', 'packet-timeline-limit', 'packet-timeline-state-limit'}
 
 
 def project_report(report: dict, include_identifiers: bool = False) -> dict:
@@ -93,6 +96,64 @@ def _project_identity(value, include_identifiers, key):
     if not isinstance(value, str):
         return None
     return value if include_identifiers or not value else 'id-' + hmac.new(key, value.encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def _packet_address(value, identity):
+    if not isinstance(value, str) or len(value) > 45:
+        return None
+    if not re.fullmatch(r'id-[0-9a-f]{24}', value):
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            return None
+        if '%' in value:
+            return None
+    return identity(value)
+
+
+def _packet_timeline(value, identity, observed_time):
+    if not isinstance(value, dict):
+        return None
+
+    def integer(number, lower, upper):
+        supported_number(number)
+        return number if type(number) is int and lower <= number <= upper else None
+
+    source_events = value.get('events')
+    events = []
+    if isinstance(source_events, list):
+        for row in source_events[:MAX_EVENTS]:
+            if not isinstance(row, dict):
+                continue
+            protocol, event_type = row.get('protocol'), row.get('event_type')
+            if (not isinstance(protocol, str) or not isinstance(event_type, str)
+                    or event_type not in EVENT_PROTOCOLS.get(protocol, ())):
+                continue
+            event = dict(protocol=protocol, event_type=event_type,
+                         packet_number=integer(row.get('packet_number'), 1, 100000),
+                         exchange_id=integer(row.get('exchange_id'), 1, 10000000),
+                         observed_at=observed_time(row.get('observed_at')),
+                         src_address=_packet_address(row.get('src_address'), identity),
+                         dst_address=_packet_address(row.get('dst_address'), identity))
+            for name in ('src_port', 'dst_port'):
+                if name in row:
+                    event[name] = integer(row[name], 0, 65535)
+            if event_type == 'echo-reply':
+                rtt = row.get('rtt_ms')
+                event['rtt_ms'] = rtt if supported_number(rtt) and 0 <= rtt <= MAX_AGE_SECONDS * 1000 else None
+            if protocol == 'dns':
+                event.update(dns_type=integer(row.get('dns_type'), 0, 65535),
+                             dns_rcode=integer(row.get('dns_rcode'), 0, 15),
+                             dns_truncated=row.get('dns_truncated') is True)
+            if event_type == 'http-request':
+                method = row.get('http_method')
+                event['http_method'] = method if isinstance(method, str) and method in HTTP_METHODS else None
+            if event_type == 'http-response':
+                event['status_code'] = integer(row.get('status_code'), 100, 599)
+            events.append(event)
+    excess = max(0, len(source_events) - MAX_EVENTS) if isinstance(source_events, list) else 0
+    dropped = (integer(value.get('dropped_events'), 0, 10000000) or 0) + excess
+    return dict(events=events, dropped_events=dropped, partial=value.get('partial') is True or bool(dropped))
 
 
 def _project_report(report, include_identifiers, key):
@@ -109,6 +170,10 @@ def _project_report(report, include_identifiers, key):
 
     def walk(value, field=None, path=()):
         supported_number(value)
+        if field == 'protocol_timeline':
+            if path and path[-1] in ('packet_analysis', 'packet_analysis_contexts'):
+                return _packet_timeline(value, identity, lambda item: walk(item, 'observed_at'))
+            return None
         if field == 'protocol_counts':
             if isinstance(value, dict):
                 for number in value.values():

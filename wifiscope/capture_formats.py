@@ -36,8 +36,8 @@ def _options(body, start, endian):
     return options
 
 
-def records(data, gaps):
-    """Yield linktype, bounded frame, original time, wire length."""
+def records(data, gaps, *, include_scope=False):
+    """Yield linktype, bounded frame, original time, wire length and optional scope."""
     if not isinstance(data, bytes) or len(data) > MAX_BYTES:
         raise ValueError('Capture must be bytes of at most 16 MiB.')
     magic = data[:4]
@@ -66,12 +66,14 @@ def records(data, gaps):
             if len(frame) < captured or captured < original:
                 gaps.add('packet-truncated')
             # Upper bits carry link-layer metadata such as FCS presence/length.
-            yield link & 0xffff, frame, timestamp(sec + fraction / unit), original
+            record = (link & 0xffff, frame, timestamp(sec + fraction / unit), original)
+            yield (*record, (0, 0)) if include_scope else record
             offset += captured
         return
     if magic != b'\x0a\x0d\x0d\x0a':
         raise ValueError('Expected a classic PCAP or PCAPNG capture.')
     offset, count, endian, section_end = 0, 0, None, None
+    section_start = 0
     interfaces = []
     while offset < len(data):
         if len(data) - offset < 12:
@@ -106,6 +108,7 @@ def records(data, gaps):
             if (major, minor) != (1, 0) or declared < -1:
                 raise ValueError('Unsupported PCAPNG section version/length.')
             _options(body, 16, endian)
+            section_start = offset
             section_end = offset + length + declared if declared >= 0 else None
             interfaces = []
         elif kind == 1:
@@ -154,7 +157,9 @@ def records(data, gaps):
             count += 1
             if count > MAX_PACKETS:
                 raise ValueError('Capture exceeds 100000 packets.')
-            yield link, body[start:start + captured], timestamp(((high << 32) | low) / resolution + shift) if kind == 6 else None, original
+            observed = timestamp(((high << 32) | low) / resolution + shift) if kind == 6 else None
+            record = (link, body[start:start + captured], observed, original)
+            yield (*record, (section_start, interface)) if include_scope else record
         else:
             gaps.add('packet-block-unsupported')
         offset += length

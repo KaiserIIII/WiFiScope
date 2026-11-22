@@ -34,7 +34,7 @@ _TIME_FIELDS = {"started_at", "ended_at", "observed_at", "timestamp"}
 _LITERAL = re.compile(r"[a-zA-Z0-9_.:/+|() -]{1,80}\Z")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ][0-9:.+\-]{8,27}Z?\Z")
 _LOCAL_ONLY = {"raw", "raw_text", "raw_config", "file_path", "path_to_file", "preview_lines", "notices", "warnings"}
-_MAP_LITERALS = {"code", "severity", "cves", "scope_status"}
+_MAP_LITERALS = {"code", "severity", "cves", "scope_status", "service", "format"}
 
 
 def project_network(report, include_identifiers=False):
@@ -120,24 +120,35 @@ def _page(prepared, fields, _packet_metadata):
         chart += '<p>源报文：' + html.escape(_cell(capture.get("packets"))) + ' 帧 · 时间线省略：' + html.escape(_cell(timeline.get("dropped_events", 0))) + ' 个事件</p>'
     comparisons = prepared.get("changes", [])
     map_findings = []
+    flows = []
     if prepared.get("kind") == "network-map":
         for row in prepared.get("findings", []):
             title, action = FINDING_TEXT.get(row["code"], (row["code"], ""))
             map_findings.append(dict(row, title=title, action=action))
+        flows = [row for row in prepared.get("edges", []) if row.get("kind") == "zeek-flow"]
     results = [
         _table("测绘来源", (("source_id", "来源"), ("kind", "类型"), ("label", "标识"),
                            ("observed_at", "观测时间"), ("status", "覆盖"), ("scope_status", "范围"),
+                           ("flow_rows", "会话"), ("loss_rows", "采集缺口"), ("skipped_rows", "跳过"),
+                           ("unknown_loss_rows", "缺口未知"), ("dropped_rows", "超额"),
                            ("coverage", "分区证据")), prepared.get("map_sources", [])),
         _table("安全发现", (("title", "发现"), ("severity", "级别"), ("node_id", "节点"),
                             ("source_id", "来源"), ("section", "证据区"), ("row", "记录"),
                             ("packet_number", "帧"), ("related_packet_number", "关联帧"), ("sample", "采样"),
-                            ("before_source_line", "基线行"), ("after_source_line", "当前行"),
+                            ("before_source_line", "基线行"), ("after_source_line", "当前行"), ("source_line", "日志行"),
                             ("status", "状态"), ("cves", "CVE"), ("action", "复核")), map_findings),
         _table("测绘节点", (("node_id", "节点"), ("source_id", "来源"), ("kind", "类型"),
                             ("label", "标识"), ("context", "范围")), prepared.get("nodes", [])),
         _table("观测关系", (("from_node", "起点"), ("to_node", "终点"), ("kind", "关系"),
                             ("source_id", "来源"), ("section", "证据区"), ("row", "记录")),
                prepared.get("edges", [])),
+        _table("Zeek 会话", (("source_id", "来源"), ("source_line", "日志行"), ("observed_at", "发起时间"),
+                            ("from_node", "发起节点"), ("to_node", "响应节点"), ("dst_port", "响应端口"),
+                            ("protocol", "传输"), ("service", "应用"), ("duration_ms", "毫秒"),
+                            ("icmp_type", "ICMP 类型"), ("icmp_code", "ICMP 代码"),
+                            ("vlan", "VLAN"), ("inner_vlan", "内层 VLAN"),
+                            ("orig_bytes", "发起端字节"), ("resp_bytes", "响应端字节"),
+                            ("missed_bytes", "缺失字节"), ("state", "会话状态")), flows),
         _table("协议时间线", (
             ("packet_number", "帧"), ("observed_at", "观测时间"), ("protocol", "协议"),
             ("event_type", "事件"), ("exchange_id", "交互"), ("src_address", "来源"),

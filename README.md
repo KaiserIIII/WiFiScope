@@ -64,7 +64,7 @@ python -m wifiscope survey --input project.json --format json --include-identifi
 
 ## 网络工作台
 
-顶栏的「网络工作台」提供安全发现与网络测绘，可在交互图中查看本机绑定、抓包流量、设备邻接、配置差异和已有扫描报告的证据。工作台还包括协议时间线、诊断监测、可选本机 Wireshark/TShark 和 HTML/JSON/CSV 导出。[网络工作台使用说明](docs/network-workbench.md)
+顶栏的「网络工作台」提供安全发现与网络测绘，可在交互图中查看本机绑定、抓包流量、设备邻接、配置差异和已有扫描报告检查结果。导入 Zeek conn.log 可按应用和地址筛选会话，查看流量方向并回查日志行。工作台还包括协议时间线、诊断监测、可选本机 Wireshark/TShark 和 HTML/JSON/CSV 导出。[网络工作台使用说明](docs/network-workbench.md)
 
 ## 工作台流程
 

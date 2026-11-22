@@ -30,7 +30,7 @@ See [guidance, glossary and privacy choices](docs/usability.md). Main-window raw
 
 ## Network workbench
 
-Open Network Workbench in the desktop toolbar to browse a security and topology map built from local observations, packet captures, Cisco IOS records, and existing scanner reports. The workbench also includes a packet timeline, layered diagnostics, monitoring, and local report exports. [Workbench guide](docs/network-workbench.md)
+Open Network Workbench in the desktop toolbar to browse a security and topology map built from local observations, packet captures, Cisco IOS records, and existing scanner reports. Import Zeek connection logs to filter flows by application and address, compare both directions, and trace records to their source lines. The workbench also includes a packet timeline, layered diagnostics, monitoring, and local report exports. [Workbench guide](docs/network-workbench.md)
 
 ## Four security tools
 

@@ -12,6 +12,12 @@
 
 诊断 JSON 用于重建地址和绑定关系时，需要在保存时显式保留标识符。使用 CLI 时，可以将 `network diagnose --include-identifiers` 的输出重定向到仅在本地使用的 JSON，再传给 `--diagnostics`。已经脱敏的输入会显示覆盖状态。
 
+### Zeek 会话
+
+在「安全与测绘」选择「导入已有证据 → Zeek conn.log」。支持标准制表符日志和 UTF-8 JSON Lines，时间戳使用 Unix 秒。切换到「流量」可按日志来源、应用类型、IP、端口和 UTC 时间搜索会话。选中会话可查看方向、两个方向的应用字节、持续时间、日志行号及采集缺口。缺少的数值显示为未知。
+
+Zeek 来源单独建立节点。有 VLAN 或内层 VLAN 的记录按标签分开。同一地址可在不同传感器、文件或 VLAN 中出现。会话方向来自 Zeek 的发起与响应字段，ICMP 的类型和代码单独显示。HTTP 应用标记作为导入证据，供按源日志复核。每份日志最多 16 MiB，保留前 10,000 条有效会话。导出包括跳过记录、采集缺口和未记录缺口的数量。内容正文、任意附加字段和 Zeek UID 不进入结果。[Zeek conn.log 文档](https://docs.zeek.org/en/current/reference/logs/conn.html)
+
 ## 报文分析
 
 打开 PCAP 或 PCAPNG 文件，也可以从「实时抓包」的结果打开时间线。使用协议、关键字和分页浏览。时间线优先使用相对抓包时间，缺失时使用帧序号。交互编号仅在同一次抓包内有效。
@@ -42,6 +48,7 @@ python -m wifiscope network dissect --input lab.pcapng --out new-decode-report
 python -m wifiscope network device --input switch.txt --out new-device-report
 python -m wifiscope network compare before.txt after.txt --out new-comparison
 python -m wifiscope network map --pcap lab.pcap --device switch.txt --nmap existing-scan.xml --out new-security-map
+python -m wifiscope network map --zeek conn.log --out new-flow-map
 python -m wifiscope network map --device after.txt --baseline before.txt --out new-baseline-map
 python -m wifiscope network diagnose
 python -m wifiscope network diagnose --trace 192.0.2.1 --preview --include-identifiers

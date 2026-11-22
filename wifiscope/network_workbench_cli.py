@@ -36,7 +36,8 @@ def add_parser(commands):
         if action == "map":
             for kind, title in (("pcap", "PCAP/PCAPNG"), ("device", "Cisco transcript"),
                                 ("diagnostics", "WiFiScope diagnostics/monitor JSON"),
-                                ("nmap", "existing Nmap XML"), ("greenbone", "existing Greenbone XML")):
+                                ("nmap", "existing Nmap XML"), ("greenbone", "existing Greenbone XML"),
+                                ("zeek", "existing Zeek conn.log in TSV or JSON Lines")):
                 sub.add_argument(f"--{kind}", action="append", default=[], metavar="FILE", help=title)
             sub.add_argument("--baseline", metavar="FILE", help="Compare this Cisco transcript against one --device")
         if action in ("diagnose", "monitor"):
@@ -69,7 +70,7 @@ def _map_report(args):
     from .network_devices import compare_device_evidence
     from .network_map import MAX_MAP_SOURCES, build_network_map, read_map_evidence
 
-    inputs = sum(len(paths) for paths in (args.pcap, args.device, args.diagnostics, args.nmap, args.greenbone))
+    inputs = sum(len(paths) for paths in (args.pcap, args.device, args.diagnostics, args.nmap, args.greenbone, args.zeek))
     if not inputs or inputs + bool(args.baseline) > MAX_MAP_SOURCES:
         raise ValueError(f"Select 1–{MAX_MAP_SOURCES} local evidence inputs.")
 
@@ -86,6 +87,7 @@ def _map_report(args):
         devices = (current,)
     return build_network_map(captures=read("pcap", args.pcap), devices=devices,
                              diagnostics=read("diagnostics", args.diagnostics), comparisons=comparisons,
+                             flow_logs=read("zeek", args.zeek),
                              inventories=(read_map_evidence(kind, path) for kind in ("nmap", "greenbone")
                                           for path in getattr(args, kind)))
 

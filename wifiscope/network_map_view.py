@@ -6,14 +6,16 @@ from tkinter import filedialog, ttk
 
 from .network_map import FINDING_TEXT, build_network_map, read_map_evidence
 from .network_widgets import BG, BORDER, INK, MUTED, EvidenceTable, canvas, text_set
+from .zeek_flows import SERVICES
 
 _SOURCES = {"pcap": "抓包", "device": "设备记录", "local": "本机快照", "baseline": "设备基线",
-            "nmap": "Nmap XML", "greenbone": "Greenbone XML"}
+            "nmap": "Nmap XML", "greenbone": "Greenbone XML", "zeek": "Zeek 会话日志"}
 _NODES = {"ip": "IP", "configured-ip": "配置 IP", "mac": "MAC", "special-address": "特殊地址", "local-socket": "本机套接字",
           "local-host": "本机", "device": "设备", "interface": "接口", "vlan": "VLAN", "prefix": "网段",
           "lldp-device": "LLDP 设备", "ospf-router-id": "OSPF Router ID", "reported-service": "导入服务"}
 _EDGES = {
     "observed-traffic": ("观测流量", "#315ca8"), "arp-claim": ("ARP 声明", "#856226"),
+    "zeek-flow": ("Zeek 会话", "#008085"),
     "device-interface": ("设备接口", "#4e6481"), "interface-address": ("接口地址", "#4e6481"),
     "configured-interface": ("配置接口", "#6a66a0"), "configured-address": ("配置地址", "#6a66a0"),
     "configured-vlan": ("配置 VLAN", "#6a66a0"), "configured-access-vlan": ("配置接入 VLAN", "#6a66a0"),
@@ -28,12 +30,15 @@ _COVERAGE = {"observed": "有观测", "partial": "部分覆盖", "unavailable": 
              "missing": "未提供", "imported-unverified": "导入待复核"}
 _PAGE_SIZE = 90
 _MAX_IMPORTED = 8
-_VIEWS = {"资产": "nodes", "关系": "edges", "安全发现": "findings", "证据覆盖": "map_sources"}
+_VIEWS = {"资产": "nodes", "关系": "edges", "流量": "flows", "安全发现": "findings", "证据覆盖": "map_sources"}
 _COLUMNS = {
     "nodes": (("label", "资产或对象", 176), ("kind", "类型", 103), ("source_id", "来源", 70),
               ("context", "范围", 120)),
     "edges": (("origin", "起点", 137), ("target", "终点", 137), ("kind", "关系", 115),
               ("source_id", "来源", 65)),
+    "flows": (("origin", "发起端", 101), ("target", "响应端", 102), ("service", "应用", 69),
+              ("dst_port", "响应端口", 62), ("orig_bytes", "发起 B", 65), ("resp_bytes", "响应 B", 65),
+              ("duration_ms", "耗时 ms", 64), ("observed_at", "时间 UTC", 130), ("source_line", "源日志行", 66)),
     "findings": (("code", "安全发现", 149), ("severity", "级别", 53), ("label", "关联节点", 133),
                  ("source_id", "来源", 65), ("count", "条数", 55)),
     "map_sources": (("source_id", "来源", 65), ("kind", "来源类型", 100), ("label", "标识", 155),
@@ -76,6 +81,7 @@ class MapView:
         for label, kind, pattern in (("报文 PCAP/PCAPNG", "pcap", "*.pcap *.pcapng"),
                                      ("设备命令文本", "device", "*.txt *.log"),
                                      ("诊断或监测 JSON", "diagnostics", "*.json"),
+                                     ("Zeek conn.log", "zeek", "*.log *.jsonl *.ndjson *.tsv"),
                                      ("Nmap XML", "nmap", "*.xml"), ("Greenbone XML", "greenbone", "*.xml")):
             menu.add_command(label=label, command=lambda k=kind, p=pattern, name=label: self.open(k, p, name))
         menu.add_separator()
@@ -130,9 +136,10 @@ class MapView:
             "diagnostics": (dict(owner.diagnostics.report, map_label="工作台诊断"),) if owner.diagnostics.report else (),
             "comparisons": (owner.devices.comparison,) if owner.devices.comparison else (),
             "inventories": (dict(main, map_label="主界面报告"),) if main.get("assets") or main.get("imported_findings") else (),
+            "flow_logs": (),
         }
         slots = {"pcap": "captures", "device": "devices", "diagnostics": "diagnostics",
-                 "nmap": "inventories", "greenbone": "inventories"}
+                 "nmap": "inventories", "greenbone": "inventories", "zeek": "flow_logs"}
         for kind, evidence in self.imported:
             slot = slots[kind]
             batches[slot] += (evidence,)
@@ -152,6 +159,8 @@ class MapView:
         if self.owner.stop.is_set():
             return
         self.imported.append((kind, report))
+        if kind == "zeek":
+            self.mode.set("流量")
         self.rebuild()
 
     def clear_imports(self):
@@ -198,7 +207,7 @@ class MapView:
     def change_mode(self, *_args):
         view = _VIEWS[self.mode.get()]
         choices = {"nodes": _NODES, "edges": {k: v[0] for k, v in _EDGES.items()}, "findings": _LEVELS,
-                   "map_sources": _SOURCES}[view]
+                   "flows": {service: service.upper() for service in SERVICES}, "map_sources": _SOURCES}[view]
         self.categories = {value: key for key, value in choices.items()}
         self.category_picker.configure(values=("全部类型", *self.categories))
         self.table.set_columns(_COLUMNS[view])
@@ -218,11 +227,16 @@ class MapView:
         category = self.categories.get(self.category.get())
         query = self.query.get().strip().casefold()
         rows = []
-        for row in self.report.get(view, []):
+        for row in self.report.get("edges" if view == "flows" else view, []):
+            if view == "flows" and row["kind"] != "zeek-flow":
+                continue
             if source is not None and row["source_id"] != source:
                 continue
-            if category is not None and row.get("severity" if view == "findings" else "kind") != category:
-                continue
+            if category is not None:
+                matches = category in row["service"] if view == "flows" else row.get(
+                    "severity" if view == "findings" else "kind") == category
+                if not matches:
+                    continue
             data = self.describe(row, view)
             if not query or any(query in str(value).casefold() for value in data.values()):
                 rows.append((row, data))
@@ -240,7 +254,7 @@ class MapView:
 
     def describe(self, row, view):
         data = dict(row)
-        if view == "edges":
+        if view in ("edges", "flows"):
             data.update(kind=_EDGES[row["kind"]][0], origin=self.nodes[row["from_node"]]["label"],
                         target=self.nodes[row["to_node"]]["label"])
         elif view == "findings":
@@ -304,6 +318,12 @@ class MapView:
         width, height = max(chart.winfo_width(), 480), max(chart.winfo_height(), 130)
         center = width / 2, height / 2 + 6
         neighbors = {}
+        selected = self.table.tree.selection()
+        active_flow = None
+        if self.mode.get() == "流量" and selected and int(selected[0]) < len(self.current):
+            active_flow = self.current[int(selected[0])]
+            if active_flow["from_node"] == self.focus and active_flow["to_node"] != self.focus:
+                neighbors[active_flow["to_node"]] = "zeek-flow"
         for edge in self.links.get(self.focus, ()):
             other = edge["to_node"] if edge["from_node"] == self.focus else edge["from_node"]
             if other != self.focus:
@@ -315,7 +335,15 @@ class MapView:
             x = center[0] + (width / 2 - 98) * math.cos(angle)
             y = center[1] + max(25, height / 2 - 36) * math.sin(angle)
             positions[node_id] = x, y
-            chart.create_line(*center, x, y, fill=_EDGES[kind][1], width=2)
+            selected_flow = active_flow is not None and node_id == active_flow["to_node"]
+            if selected_flow:
+                dx, dy = x - center[0], y - center[1]
+                distance = math.hypot(dx, dy)
+                padding = min(64, distance * 0.4) / distance
+                chart.create_line(*center, x - dx * padding, y - dy * padding, fill=_EDGES[kind][1],
+                                  width=3, arrow=tk.LAST, tags="active-flow")
+            else:
+                chart.create_line(*center, x, y, fill=_EDGES[kind][1], width=2)
         chart.create_text(10, 8, text=f"邻近节点 {len(visible)} / {len(neighbors)}　·　连线类型见关系表",
                           anchor="nw", fill=MUTED)
         for node_id, (x, y) in positions.items():
@@ -330,3 +358,17 @@ class MapView:
                                                 fill=INK if node_id == self.focus else BG, outline=BORDER, tags=tag)
             chart.tag_lower(background, text)
             chart.tag_bind(tag, "<Button-1>", lambda _event, selected=node_id: self.focus_node(selected))
+        if active_flow is not None:
+            self.draw_bytes(active_flow, width)
+
+    def draw_bytes(self, flow, width):
+        left, right = flow["orig_bytes"], flow["resp_bytes"]
+        values = ("未记录" if value is None else f"{value:,} B" for value in (left, right))
+        label = "  /  ".join(values)
+        self.graph.create_text(width - 12, 8, text=f"发起 / 响应　{label}", anchor="ne", fill=MUTED)
+        if left is None or right is None or left + right == 0:
+            return
+        base = width - 164
+        pivot = base + 152 * left / (left + right)
+        self.graph.create_rectangle(base, 27, pivot, 33, fill="#008085", width=0)
+        self.graph.create_rectangle(pivot, 27, width - 12, 33, fill="#315ca8", width=0)

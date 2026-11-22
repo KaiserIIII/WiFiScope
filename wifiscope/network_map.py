@@ -9,6 +9,7 @@ MAX_EDGES = 12000
 MAX_FINDINGS = 2400
 FINDING_TEXT = {
     "cleartext-http": ("明文 HTTP", "核对该端口是否应使用加密传输，并检查应用的 HTTPS 配置。"),
+    "zeek-http": ("Zeek 记录 HTTP 会话", "按源日志行号核对会话和采集位置，确认业务是否要求 HTTPS。"),
     "arp-claims-differ": ("同一 IP 的 ARP 声明不同", "先核对抓包接口、VLAN 和设备切换，再确认登记的 IP/MAC。"),
     "listener-wildcard": ("通配地址监听", "核对应用所需的监听范围和主机防火墙规则。"),
     "listener-nonloopback": ("非回环地址监听", "核对指定地址是否符合应用和防火墙预期。"),
@@ -410,11 +411,32 @@ def _inventory(graph, report):
                       status="imported-unverified", score=score, port=_number(finding.get("port"), 1, 65535), cves=cves)
 
 
-def build_network_map(*, captures=(), devices=(), diagnostics=(), comparisons=(), inventories=()):
+def _zeek(graph, report):
+    source = graph.source("zeek", report, report["status"],
+                          source_hash=report["source_digest"], observed_at=report["observed_at"])
+    if source is None:
+        return
+    metadata = ("format", "ended_at", "flow_rows", "skipped_rows", "dropped_rows", "loss_rows", "unknown_loss_rows")
+    graph.sources[source - 1].update((field, report[field]) for field in metadata)
+    for index, flow in enumerate(report["flows"], 1):
+        outer, inner = flow.get("vlan"), flow.get("inner_vlan")
+        context = f"VLAN {outer}" if outer is not None else None
+        if inner is not None:
+            context = f"{context or 'VLAN ?'} / {inner}"
+        origin = graph.ip(source, flow["src_address"], context=context)
+        target = graph.ip(source, flow["dst_address"], context=context)
+        fields = {key: value for key, value in flow.items() if key not in ("src_address", "dst_address")}
+        graph.edge(source, "zeek-flow", origin, target, "conn_log", index, **fields)
+        if flow["protocol"] == "tcp" and "http" in flow["service"]:
+            graph.finding(source, "zeek-http", target, "info", "conn_log", index, related=origin, group=flow["dst_port"],
+                          source_line=flow["source_line"], observed_at=flow["observed_at"], port=flow["dst_port"])
+
+
+def build_network_map(*, captures=(), devices=(), diagnostics=(), comparisons=(), inventories=(), flow_logs=()):
     """Build only within-source relationships, retaining a locator for each evidence row."""
     graph = _Map()
     for gather, reports in ((_capture, captures), (_device, devices), (_diagnostics, diagnostics),
-                            (_comparison, comparisons), (_inventory, inventories)):
+                            (_comparison, comparisons), (_inventory, inventories), (_zeek, flow_logs)):
         for report in reports:
             gather(graph, report)
     return {"schema_version": 1, "kind": "network-map", "status": "partial" if graph.limits else "complete",
@@ -446,6 +468,10 @@ def read_map_evidence(kind, path):
         from .packets import analyze_capture
 
         report = analyze_capture(read_bounded(source))
+    elif kind == "zeek":
+        from .zeek_flows import parse_zeek_flows
+
+        report = parse_zeek_flows(read_bounded(source))
     else:
         from .importers import import_greenbone, import_nmap
 

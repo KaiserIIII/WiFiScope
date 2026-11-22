@@ -64,7 +64,7 @@ python -m wifiscope survey --input project.json --format json --include-identifi
 
 ## 网络工作台
 
-顶栏的「网络工作台」提供协议时间线、本机与分层诊断、有限轮次监测、VLAN/OSPF/LLDP 拓扑及离线配置比较。支持筛选、查看记录、可选本机 Wireshark/TShark 和 HTML/JSON/CSV 导出。见[网络工作台使用说明](docs/network-workbench.md)。
+顶栏的「网络工作台」提供安全发现与网络测绘，可在交互图中查看本机绑定、抓包流量、设备邻接、配置差异和已有扫描报告的证据。工作台还包括协议时间线、诊断监测、可选本机 Wireshark/TShark 和 HTML/JSON/CSV 导出。[网络工作台使用说明](docs/network-workbench.md)
 
 ## 工作台流程
 

@@ -57,6 +57,7 @@ try {
 } catch {}
 ConvertTo-Json -InputObject $e -Depth 5 -Compress
 """
+_WINDOWS_INVENTORY_TIMEOUT = 35
 _TRACE_DEADLINE = 30.0
 _HOP_LINE = re.compile(r'^\s*([0-9]{1,2})\s+(\S.*?)\s*$')
 _HOP_RTT = re.compile(r'([<＜])?\s*([0-9]{1,9}(?:[.,][0-9]{1,5})?)\s*(?:ms\b|毫秒)', re.IGNORECASE)
@@ -168,7 +169,7 @@ def _linux_sockets(output):
 
 
 def _local_windows(read, add):
-    output = _structured(read(_ps(_WINDOWS_STATE), maximum=14), dict) or {}
+    output = _structured(read(_ps(_WINDOWS_STATE), maximum=_WINDOWS_INVENTORY_TIMEOUT), dict) or {}
     add('interfaces', 'interfaces', output.get('interfaces'), _interface)
     add('routes', 'routes', output.get('routes'), _route)
     add('neighbors', 'neighbors', output.get('neighbors'), lambda row: _neighbor(row, False))
@@ -191,7 +192,7 @@ def read_local_network(*, cancel=None):
     report = {'platform': system, 'status': 'unknown', 'interfaces': [], 'routes': [],
               'neighbors': [], 'listeners': [], 'gaps': []}
     available = []
-    deadline = time.monotonic() + 14
+    deadline = time.monotonic() + (_WINDOWS_INVENTORY_TIMEOUT if system == 'Windows' else 14)
 
     def read(argv, *, maximum=4):
         remaining = deadline - time.monotonic()

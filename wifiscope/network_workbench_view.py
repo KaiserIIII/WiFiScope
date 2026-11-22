@@ -8,13 +8,15 @@ from tkinter import filedialog, ttk
 from .network_device_view import DeviceView
 from .network_diagnostic_view import DiagnosticView
 from .network_export import export_network
+from .network_map_view import MapView
 from .network_packets_view import PacketView
 from .network_widgets import BG, INK
 
 
 class NetworkWorkbench:
     """A modeless tool window. Its worker never calls Tk or changes the main report."""
-    def __init__(self, parent):
+    def __init__(self, parent, main_report=None):
+        self.main_report = main_report or dict
         self.window = tk.Toplevel(parent)
         self.window.title("WiFiScope · 网络工作台")
         screen_width, screen_height = parent.winfo_screenwidth(), parent.winfo_screenheight()
@@ -43,16 +45,17 @@ class NetworkWorkbench:
         self.tabs = ttk.Notebook(self.window, padding=(8, 5))
         self.tabs.pack(fill="both", expand=True)
         self.tabs.enable_traversal()
-        self.packet_tab, self.diagnostic_tab, self.device_tab = [
-            ttk.Frame(self.tabs, padding=9) for _ in range(3)
+        self.map_tab, self.packet_tab, self.diagnostic_tab, self.device_tab = [
+            ttk.Frame(self.tabs, padding=9) for _ in range(4)
         ]
-        for tab, text in ((self.packet_tab, "报文分析"), (self.diagnostic_tab, "分层诊断与监测"),
+        for tab, text in ((self.map_tab, "安全与测绘"), (self.packet_tab, "报文分析"), (self.diagnostic_tab, "分层诊断与监测"),
                           (self.device_tab, "设备与拓扑")):
             self.tabs.add(tab, text=text)
         self.packets = PacketView(self, self.packet_tab)
         self.diagnostics = DiagnosticView(self, self.diagnostic_tab)
         self.devices = DeviceView(self, self.device_tab)
-        self.views = {str(self.packet_tab): self.packets, str(self.diagnostic_tab): self.diagnostics,
+        self.mapping = MapView(self, self.map_tab)
+        self.views = {str(self.map_tab): self.mapping, str(self.packet_tab): self.packets, str(self.diagnostic_tab): self.diagnostics,
                       str(self.device_tab): self.devices}
         self.window.bind("<Control-e>", lambda _event: self.guard(self.export))
         self.timer = self.window.after(60, self.poll)

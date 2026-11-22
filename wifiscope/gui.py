@@ -215,9 +215,13 @@ class Workstation:
         fresh = self.network_workbench is None or not self.network_workbench.window.winfo_exists()
         if fresh:
             from .network_workbench_view import NetworkWorkbench
-            self.network_workbench = NetworkWorkbench(self.root)
-        if capture is None and fresh and self.controller.report:
-            capture = self.controller.report if 'packet_analysis' in self.controller.report else None
+            self.network_workbench = NetworkWorkbench(self.root, lambda: self.controller.report)
+            if capture is None and self.controller.report:
+                report = self.controller.report
+                if 'packet_analysis' in report:
+                    self.network_workbench.packets.show(report)
+                if 'packet_analysis' in report or report.get('assets') or report.get('imported_findings'):
+                    self.network_workbench.mapping.rebuild()
         if capture is not None:
             self.network_workbench.show_packets(capture)
         self.network_workbench.window.lift()

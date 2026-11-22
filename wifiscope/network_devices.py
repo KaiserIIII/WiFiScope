@@ -550,25 +550,25 @@ def parse_device_evidence(text, label=''):
             'coverage': coverage, 'warnings': warnings, **rows, 'config': config}
 
 
-def _local_path(path):
+def local_evidence_path(path):
     name = os.fspath(path)
     if not isinstance(name, str) or not name or name.startswith(('\\\\', '//', '\\/', '/\\')):
-        raise ValueError('Choose a local device evidence text file.')
+        raise ValueError('Choose a local evidence file.')
     if '://' in name or '\x00' in name:
-        raise ValueError('Choose a local device evidence text file.')
+        raise ValueError('Choose a local evidence file.')
     path = Path(name)
     if os.name == 'nt':
         # Check the drive before a metadata or open operation. This also rejects mapped network drives.
         drive = Path(os.path.abspath(path)).drive
         if (not drive or drive.startswith(('\\\\', '//')) or ':' in name[len(path.drive):]
                 or ctypes.windll.kernel32.GetDriveTypeW(drive + '\\') == 4):
-            raise ValueError('Choose a local device evidence text file.')
+            raise ValueError('Choose a local evidence file.')
     return path
 
 
 def read_device_evidence(path):
     """Read a bounded regular local file as UTF-8 or GBK and normalize it."""
-    path = _local_path(path)
+    path = local_evidence_path(path)
     try:
         if not stat.S_ISREG(path.stat().st_mode):
             raise ValueError('Choose a regular device evidence text file.')

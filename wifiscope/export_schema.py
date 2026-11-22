@@ -81,7 +81,7 @@ GAPS = frozenset(source + suffix for source in ('wifi', 'interfaces', 'routes', 
     'packet-checksums-unverified', 'packet-retransmission-unknown', 'packet-truncated',
     'packet-linktype-unsupported', 'packet-block-unsupported', 'packet-time-unknown',
     'packet-vlan-limit', 'packet-transport-unsupported', 'packet-invalid-length',
-    'packet-arp-unsupported', 'packet-ipv6-unsupported', 'packet-ipv6-extension-limit',
+    'packet-arp-unsupported', 'packet-arp-scope-limit', 'packet-ipv6-unsupported', 'packet-ipv6-extension-limit',
     'packet-network-unsupported', 'packet-fragment', 'packet-scope-unknown', 'comparison-scope-limited',
     'capture-analysis-limit', 'packet-timeline-limit', 'packet-timeline-state-limit'}
 
@@ -138,6 +138,12 @@ def _packet_timeline(value, identity, observed_time):
             for name in ('src_port', 'dst_port'):
                 if name in row:
                     event[name] = integer(row[name], 0, 65535)
+            if 'observation_group' in row:
+                event['observation_group'] = integer(row['observation_group'], 1, MAX_EVENTS)
+            if protocol == 'arp' and 'arp_sender_mac' in row:
+                mac = row['arp_sender_mac']
+                event['arp_sender_mac'] = identity(mac) if isinstance(mac, str) and re.fullmatch(
+                    r'(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}|id-[a-f0-9]{24}', mac) else None
             if event_type == 'echo-reply':
                 rtt = row.get('rtt_ms')
                 event['rtt_ms'] = rtt if supported_number(rtt) and 0 <= rtt <= MAX_AGE_SECONDS * 1000 else None

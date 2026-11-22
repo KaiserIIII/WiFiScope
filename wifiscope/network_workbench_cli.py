@@ -11,7 +11,7 @@ from .workstation import read_bounded
 
 
 def add_parser(commands):
-    network = commands.add_parser("network", help="Protocol timeline, device evidence, diagnostics and monitoring")
+    network = commands.add_parser("network", help="Security mapping, protocol timeline and diagnostics")
     actions = network.add_subparsers(dest="network_action", required=True)
     for action, help_text in (
         ("timeline", "Analyze a local PCAP or PCAPNG"),
@@ -20,6 +20,7 @@ def add_parser(commands):
         ("diagnose", "Read local configuration and run explicitly authorized diagnostics"),
         ("monitor", "Repeat an authorized diagnostic plan for a finite period"),
         ("dissect", "Read typed frame metadata with an existing local TShark"),
+        ("map", "Build a security and asset map from existing local evidence"),
     ):
         sub = actions.add_parser(action, help=help_text)
         sub.add_argument("--out", help="New directory for the HTML, JSON and CSV report")
@@ -32,6 +33,12 @@ def add_parser(commands):
         if action == "dissect":
             sub.add_argument("--tshark", help="Absolute path to an already available TShark executable")
             sub.add_argument("--limit", type=int, default=MAX_FRAMES)
+        if action == "map":
+            for kind, title in (("pcap", "PCAP/PCAPNG"), ("device", "Cisco transcript"),
+                                ("diagnostics", "WiFiScope diagnostics/monitor JSON"),
+                                ("nmap", "existing Nmap XML"), ("greenbone", "existing Greenbone XML")):
+                sub.add_argument(f"--{kind}", action="append", default=[], metavar="FILE", help=title)
+            sub.add_argument("--baseline", metavar="FILE", help="Compare this Cisco transcript against one --device")
         if action in ("diagnose", "monitor"):
             sub.add_argument("--interface")
             sub.add_argument("--source", help="Numeric source address on the selected interface")
@@ -58,10 +65,37 @@ def _plan_options(args):
                 "interval": args.interval, "failure_threshold": args.failure_threshold}
 
 
+def _map_report(args):
+    from .network_devices import compare_device_evidence
+    from .network_map import MAX_MAP_SOURCES, build_network_map, read_map_evidence
+
+    inputs = sum(len(paths) for paths in (args.pcap, args.device, args.diagnostics, args.nmap, args.greenbone))
+    if not inputs or inputs + bool(args.baseline) > MAX_MAP_SOURCES:
+        raise ValueError(f"Select 1–{MAX_MAP_SOURCES} local evidence inputs.")
+
+    def read(kind, paths):
+        return (read_map_evidence(kind, path) for path in paths)
+
+    devices, comparisons = read("device", args.device), ()
+    if args.baseline:
+        if len(args.device) != 1:
+            raise ValueError("--baseline requires exactly one current --device transcript.")
+        current = next(devices)
+        before = read_map_evidence("device", args.baseline)
+        comparisons = (compare_device_evidence(before, current),)
+        devices = (current,)
+    return build_network_map(captures=read("pcap", args.pcap), devices=devices,
+                             diagnostics=read("diagnostics", args.diagnostics), comparisons=comparisons,
+                             inventories=(read_map_evidence(kind, path) for kind in ("nmap", "greenbone")
+                                          for path in getattr(args, kind)))
+
+
 def run(args):
     action = args.network_action
     if action == "timeline":
         report = analyze_capture(read_bounded(args.input))
+    elif action == "map":
+        report = _map_report(args)
     elif action == "dissect":
         report = dissect_capture(args.input, executable=args.tshark, limit=args.limit)
     elif action in ("device", "compare"):

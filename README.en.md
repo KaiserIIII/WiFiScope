@@ -30,7 +30,7 @@ See [guidance, glossary and privacy choices](docs/usability.md). Main-window raw
 
 ## Network workbench
 
-Open Network Workbench in the desktop toolbar for a filterable packet timeline, layered diagnostics and finite monitoring, Cisco IOS evidence and configuration comparison, observed topology, and local report exports. See the [workbench guide](docs/network-workbench.md).
+Open Network Workbench in the desktop toolbar to browse a security and topology map built from local observations, packet captures, Cisco IOS records, and existing scanner reports. The workbench also includes a packet timeline, layered diagnostics, monitoring, and local report exports. [Workbench guide](docs/network-workbench.md)
 
 ## Four security tools
 

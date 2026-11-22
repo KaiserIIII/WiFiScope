@@ -129,6 +129,7 @@ class PacketTimeline:
         self.dropped = 0
         self._pending = OrderedDict()
         self._next_exchange = 1
+        self._observation_groups = {}
 
     def begin_packet(self, scope, vlans, number, observed_at):
         self.scope = (scope, vlans)
@@ -170,9 +171,10 @@ class PacketTimeline:
             self.gaps.add('packet-timeline-limit')
             return
         src, dst, sport, dport = flow
+        group = self._observation_groups.setdefault(self.scope, len(self._observation_groups) + 1)
         event = dict(protocol=protocol, event_type=event_type, exchange_id=exchange,
                      packet_number=self.number, observed_at=self.observed_at,
-                     src_address=src, dst_address=dst)
+                     src_address=src, dst_address=dst, observation_group=group)
         if sport is not None:
             event.update(src_port=sport, dst_port=dport)
         event.update(details)
@@ -183,17 +185,18 @@ class PacketTimeline:
 
     def arp(self, operation, src, dst, message):
         flow = (src, dst, None, None)
+        sender_mac = ":".join(f"{byte:02x}" for byte in message[8:14])
         if operation == 1:
             key = (src, dst, bytes(message[8:14]))
             exchange = self._lookup('arp', key) or self._id()
             self._store('arp', key, exchange)
-            self._emit('arp', 'arp-request', flow, exchange)
+            self._emit('arp', 'arp-request', flow, exchange, arp_sender_mac=sender_mac)
         else:
             key = (dst, src, bytes(message[18:24]))
             exchange = self._lookup('arp', key)
             if exchange is not None:
                 self._discard('arp', key)
-            self._emit('arp', 'arp-reply', flow, exchange)
+            self._emit('arp', 'arp-reply', flow, exchange, arp_sender_mac=sender_mac)
 
     def echo(self, ip_version, src, dst, message):
         request, reply = (8, 0) if ip_version == 4 else (128, 129)

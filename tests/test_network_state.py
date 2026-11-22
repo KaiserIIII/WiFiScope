@@ -27,6 +27,7 @@ class LocalNetworkTests(unittest.TestCase):
         command = run.call_args.args[0][-1]
         self.assertIn('Get-NetRoute', command)
         self.assertIn('Get-NetNeighbor', command)
+        self.assertGreater(run.call_args.kwargs['timeout'], 30)
         self.assertNotIn('Where-Object {$_.DestinationPrefix', command)
         self.assertEqual(report['status'], 'ok')
         self.assertEqual(report['routes'][1]['destination'], '192.0.2.0/24')

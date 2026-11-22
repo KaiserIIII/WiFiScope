@@ -27,7 +27,7 @@ def existing_case(path):
     return path
 
 
-def load_json(path):
+def read_json_object(path):
     def reject_constant(value):
         raise ValueError('Non-finite JSON values are unsupported.')
     try:
@@ -36,6 +36,11 @@ def load_json(path):
         raise ValueError('Invalid bounded UTF-8 report JSON; select a WiFiScope snapshot.') from None
     if not isinstance(report, dict):
         raise ValueError('Report JSON must be an object.')
+    return report
+
+
+def load_json(path):
+    report = read_json_object(path)
     # Enforce nested/typed budgets before processing or rendering arbitrary JSON.
     from .case_validation import validate_report
     validate_report(report)

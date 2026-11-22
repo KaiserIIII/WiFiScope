@@ -24,7 +24,8 @@ def analyze_capture(data: bytes) -> dict:
     summary = dict(packets=0, captured_bytes=0, wire_bytes=0, protocol_counts={}, endpoints=[], conversations=[],
         tcp_syn_packets=0, tcp_reset_packets=0, dns_queries=0, dns_nxdomain=0,
         plaintext_http_packets=0, arp_bindings=[], observations=[])
-    protocols, endpoints, conversations, bindings, conflicts = Counter(), {}, {}, {}, set()
+    protocols, endpoints, conversations, bindings = Counter(), {}, {}, {}
+    arp_claims, conflicts = {}, set()
     first_time = None
     unknown_time = False
 
@@ -148,7 +149,14 @@ def analyze_capture(data: bytes) -> dict:
                 mac = ':'.join(f'{b:02x}' for b in payload[8:14])
                 if address != '0.0.0.0':
                     bounded(bindings, (address, mac), 'arp_bindings', dict(address=address, mac=mac))
-                    conflicts.add(address)
+                    claim = scope, tuple(vlans), address
+                    if claim in arp_claims:
+                        if arp_claims[claim] != mac:
+                            conflicts.add(address)
+                    elif len(arp_claims) < CAPS['arp_bindings']:
+                        arp_claims[claim] = mac
+                    else:
+                        gaps.add('packet-arp-scope-limit')
                 if len(frame) == original:
                     target = str(ipaddress.ip_address(bytes(payload[24:28])))
                     timeline.arp(operation, address, target, payload)
@@ -227,12 +235,10 @@ def analyze_capture(data: bytes) -> dict:
             if not nonfirst:
                 complete = not fragmented and len(frame) == original and total <= len(payload)
                 transport(body, proto, src, dst, len(frame), ip_version, fragmented, complete)
-    by_address = Counter(address for address, _ in bindings)
     for address in sorted(conflicts):
-        if by_address[address] > 1:
-            if len(summary['observations']) >= CAPS['observations']:
-                raise ValueError('Capture exceeds observations aggregate limit.')
-            summary['observations'].append(dict(code='arp-conflict', address=address, status='needs-review'))
+        if len(summary['observations']) >= CAPS['observations']:
+            raise ValueError('Capture exceeds observations aggregate limit.')
+        summary['observations'].append(dict(code='arp-conflict', address=address, status='needs-review'))
     if unknown_time:
         gaps.add('packet-time-unknown')
     summary.update(protocol_counts=dict(protocols), endpoints=list(endpoints.values()),

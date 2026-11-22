@@ -21,6 +21,7 @@ _IDENTITIES = {
     "cname", "server", "fqdn", "dns_servers", "remote_address", "local_address", "ip",
     "preferred_source", "configured_gateways", "configured_servers", "network",
     "secondary_addresses", "passive_interfaces", "active_interfaces", "router",
+    "context", "source_digest",
 }
 _LITERAL_FIELDS = {
     "area", "change", "encoding", "event_type", "family", "field", "fields",
@@ -33,6 +34,7 @@ _TIME_FIELDS = {"started_at", "ended_at", "observed_at", "timestamp"}
 _LITERAL = re.compile(r"[a-zA-Z0-9_.:/+|() -]{1,80}\Z")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ][0-9:.+\-]{8,27}Z?\Z")
 _LOCAL_ONLY = {"raw", "raw_text", "raw_config", "file_path", "path_to_file", "preview_lines", "notices", "warnings"}
+_MAP_LITERALS = {"code", "severity", "cves", "scope_status"}
 
 
 def project_network(report, include_identifiers=False):
@@ -56,6 +58,8 @@ def project_network(report, include_identifiers=False):
         if field in _TIME_FIELDS and _TIME.fullmatch(value):
             return value
         if field in _LITERAL_FIELDS and _LITERAL.fullmatch(value):
+            return value
+        if report.get("kind") == "network-map" and field in _MAP_LITERALS and _LITERAL.fullmatch(value):
             return value
         if field == "command" and value.startswith("show ") and _LITERAL.fullmatch(value):
             return value
@@ -105,6 +109,8 @@ def _bar_chart(protocols):
 
 
 def _page(prepared, fields, _packet_metadata):
+    from .network_map import FINDING_TEXT
+
     capture = prepared.get("packet_analysis", {})
     timeline = capture.get("protocol_timeline", {})
     chart = _bar_chart(capture.get("protocol_counts", {}))
@@ -113,7 +119,25 @@ def _page(prepared, fields, _packet_metadata):
     if capture:
         chart += '<p>源报文：' + html.escape(_cell(capture.get("packets"))) + ' 帧 · 时间线省略：' + html.escape(_cell(timeline.get("dropped_events", 0))) + ' 个事件</p>'
     comparisons = prepared.get("changes", [])
+    map_findings = []
+    if prepared.get("kind") == "network-map":
+        for row in prepared.get("findings", []):
+            title, action = FINDING_TEXT.get(row["code"], (row["code"], ""))
+            map_findings.append(dict(row, title=title, action=action))
     results = [
+        _table("测绘来源", (("source_id", "来源"), ("kind", "类型"), ("label", "标识"),
+                           ("observed_at", "观测时间"), ("status", "覆盖"), ("scope_status", "范围"),
+                           ("coverage", "分区证据")), prepared.get("map_sources", [])),
+        _table("安全发现", (("title", "发现"), ("severity", "级别"), ("node_id", "节点"),
+                            ("source_id", "来源"), ("section", "证据区"), ("row", "记录"),
+                            ("packet_number", "帧"), ("related_packet_number", "关联帧"), ("sample", "采样"),
+                            ("before_source_line", "基线行"), ("after_source_line", "当前行"),
+                            ("status", "状态"), ("cves", "CVE"), ("action", "复核")), map_findings),
+        _table("测绘节点", (("node_id", "节点"), ("source_id", "来源"), ("kind", "类型"),
+                            ("label", "标识"), ("context", "范围")), prepared.get("nodes", [])),
+        _table("观测关系", (("from_node", "起点"), ("to_node", "终点"), ("kind", "关系"),
+                            ("source_id", "来源"), ("section", "证据区"), ("row", "记录")),
+               prepared.get("edges", [])),
         _table("协议时间线", (
             ("packet_number", "帧"), ("observed_at", "观测时间"), ("protocol", "协议"),
             ("event_type", "事件"), ("exchange_id", "交互"), ("src_address", "来源"),
@@ -136,6 +160,8 @@ def _page(prepared, fields, _packet_metadata):
         _table("监测告警", (("sequence", "轮次"), ("stage", "环节"), ("target", "目标"),
                            ("type", "变化")), prepared.get("alerts", [])),
     ]
+    map_note = ('<p>抓包地址按文件汇总。关系和安全发现只覆盖所列来源与证据记录。</p>'
+                if prepared.get("kind") == "network-map" else "")
     return (
         '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" '
         'content="width=device-width,initial-scale=1"><title>WiFiScope 网络工作台</title>'
@@ -147,7 +173,7 @@ def _page(prepared, fields, _packet_metadata):
         'th{background:#e3ebf5}.bars{padding:0;list-style:none;margin:0}.bars li{display:grid;gap:8px;align-items:center;grid-template-columns:90px 1fr 58px}'
         'meter{width:100%;height:17px;accent-color:#28618e}summary{cursor:pointer;font-weight:650}</style>'
         '<main><header><h1>WiFiScope 网络工作台</h1><p>本地证据与本次结果</p></header>' +
-        chart + "".join(results) +
+        map_note + chart + "".join(results) +
         '<details><summary>原始字段表</summary><div class="scroll"><table>' + fields + '</table></div></details></main></html>'
     )
 

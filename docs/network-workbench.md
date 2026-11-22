@@ -1,6 +1,16 @@
 # 网络工作台
 
-从 WiFiScope 顶栏打开「网络工作台」。使用标签切换报文、诊断和设备视图。点击图上的点或拓扑关系可以选中对应的表格行，右侧显示该条证据。桌面界面和 CLI 都可将当前结果导出为本地 HTML、JSON、CSV，默认对地址、设备、接口等身份字段使用同次导出内一致的伪名。
+从 WiFiScope 顶栏打开「网络工作台」。使用标签切换安全与测绘、报文、诊断和设备视图。桌面界面和 CLI 都可将当前结果导出为本地 HTML、JSON、CSV，默认对地址、设备、接口等身份字段使用同次导出内一致的伪名。
+
+## 安全与测绘
+
+点「读取本机并更新」查看本机接口、路由、邻居缓存和 TCP/UDP 绑定。点「汇总工作台证据」可纳入其他标签中已有的抓包、诊断样本、设备命令记录和基线比较，以及主界面当前报告中的 Nmap/Greenbone 证据。也可以在本页导入 PCAP、PCAPNG、Cisco 文本、诊断 JSON 和已有的 Nmap/Greenbone XML。
+
+通过「资产」「关系」「安全发现」「证据覆盖」切换视图。可按来源、关系类型和发现级别筛选，搜索地址或标识。选择记录会显示邻近节点，点击节点可查看关联发现。关系有明确的证据类型，包括 LLDP/OSPF、VLAN、路由、缓存、流量和配置。配置关系与设备运行时命令输出分别显示。抓包地址以文件为汇总范围，同一文件可含多个接口和 VLAN。不同来源及设备路由上下文里的同址记录保留各自的节点。
+
+安全发现包含明文 HTTP、同一采集分组内不同 MAC 对同一 IP 的 ARP 声明、非回环绑定、设备基线变化及从 Greenbone 导入的待复核结果。明文和 ARP 记录提供抓包帧号，绑定提供本机采样编号，设备证据提供原始文本行号。监听记录反映本机绑定范围，外部可达性还取决于防火墙、路由和网络策略。图中没有记录时可先查看「证据覆盖」。导入或汇总均在本地，图中记录限制为 6,000 个节点、12,000 条关系和 2,400 项发现，超出时提示截断。
+
+诊断 JSON 用于重建地址和绑定关系时，需要在保存时显式保留标识符。使用 CLI 时，可以将 `network diagnose --include-identifiers` 的输出重定向到仅在本地使用的 JSON，再传给 `--diagnostics`。已经脱敏的输入会显示覆盖状态。
 
 ## 报文分析
 
@@ -31,6 +41,8 @@ python -m wifiscope network timeline --input lab.pcap --out new-packet-report
 python -m wifiscope network dissect --input lab.pcapng --out new-decode-report
 python -m wifiscope network device --input switch.txt --out new-device-report
 python -m wifiscope network compare before.txt after.txt --out new-comparison
+python -m wifiscope network map --pcap lab.pcap --device switch.txt --nmap existing-scan.xml --out new-security-map
+python -m wifiscope network map --device after.txt --baseline before.txt --out new-baseline-map
 python -m wifiscope network diagnose
 python -m wifiscope network diagnose --trace 192.0.2.1 --preview --include-identifiers
 python -m wifiscope network monitor --peer 192.0.2.1 --samples 5 --interval 2 --authorized --out new-monitor-report

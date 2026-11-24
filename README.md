@@ -128,6 +128,15 @@ $caseFinding = $caseView.investigation.findings[0].id
 python -m wifiscope case triage --db investigation.db --snapshot 1 --finding $caseFinding --status investigating
 ```
 
+在 Linux/macOS 或无 PowerShell 的环境中，也可使用 Python 标准库读取同一个持久化 ID（以下为 POSIX shell 示例）：
+
+```sh
+case_finding=$(python -m wifiscope case show --db investigation.db --snapshot 1 --include-identifiers | python -c 'import json, sys; print(json.load(sys.stdin)["investigation"]["findings"][0]["id"])')
+python -m wifiscope case triage --db investigation.db --snapshot 1 --finding "$case_finding" --status investigating
+```
+
+仅在快照存在且至少包含一条发现时使用此示例；读取失败时不要继续处置。
+
 身份关联需要在最初导出时选择 `--include-identifiers`，并在 `case add` 时再次明确选择 `--include-identifiers`；这是两项独立决定。已脱敏输入无法恢复原始标识符，即使重新导出/保存时选择包含标识符，其 `identifiers_included` 仍为 false，比较仅显示数量，合并会拒绝。案件默认脱敏也保留已构建的资产/发现/覆盖，不重新用伪名当作 IP 重建。
 
 ## 能力与限制

@@ -13,6 +13,36 @@ from wifiscope.wifi import parse_netsh
 
 
 class ReportTests(unittest.TestCase):
+    def test_report_table_accessibility_and_escaped_labels(self):
+        from html.parser import HTMLParser
+        from wifiscope.report_html import table
+
+        class Tags(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.tags = []
+
+            def handle_starttag(self, tag, attrs):
+                self.tags.append((tag, dict(attrs)))
+
+        label = 'Evidence "quoted" <network>'
+        parser = Tags()
+        parser.feed(table(label, ('source', 'status'), [{'source': 'fixture'}]))
+        self.assertIn(('div', {'class': 'scroll', 'role': 'region',
+                               'aria-label': label, 'tabindex': '0'}), parser.tags)
+        self.assertIn(('table', {'aria-label': label}), parser.tags)
+        self.assertEqual([a.get('scope') for tag, a in parser.tags if tag == 'th'], ['col', 'col'])
+        with tempfile.TemporaryDirectory() as temp:
+            paths = export_report(demo_report(), Path(temp) / 'bundle')
+            document = Path(paths['html']).read_text(encoding='utf-8')
+            parser = Tags()
+            parser.feed(document)
+            self.assertIn(('table', {'aria-label': 'Typed evidence'}), parser.tags)
+            self.assertIn(('div', {'class': 'scroll', 'role': 'region',
+                                   'aria-label': 'Typed evidence', 'tabindex': '0'}), parser.tags)
+            self.assertIn('.scroll:focus-visible', document)
+
+
     def test_heatmap_bundle_preserves_synthetic_provenance_through_reexport_and_case(self):
         from wifiscope.cases import CaseStore
         from wifiscope.demo import survey_demo
